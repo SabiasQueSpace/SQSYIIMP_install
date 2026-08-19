@@ -1,0 +1,46 @@
+#!/bin/sh
+#
+# SQSYIIMP dynamic MOTD header
+# Original MOTD work based on Ubuntu update-motd examples.
+# SabiasQue.Space
+
+clear
+
+if [ -r /etc/os-release ]; then
+    . /etc/os-release
+    DISTRIB_DESCRIPTION="${PRETTY_NAME:-${NAME:-Linux}}"
+elif [ -r /etc/lsb-release ]; then
+    . /etc/lsb-release
+else
+    DISTRIB_DESCRIPTION="Linux"
+fi
+
+print_logo() {
+    if command -v figlet >/dev/null 2>&1; then
+        if command -v lolcat >/dev/null 2>&1; then
+            figlet -f slant -w 100 "SQSYIIMP" | lolcat -f
+        else
+            figlet -f slant -w 100 "SQSYIIMP"
+        fi
+    else
+        printf '\033[1;36m%s\033[0m\n' '  SQSYIIMP'
+    fi
+}
+
+print_logo
+printf '\n'
+printf '\033[1;36m%s\033[0m\n' 'SQSYIIMP Mining Pool Platform'
+printf '\033[0;33m%s\033[0m\n' 'SabiasQue.Space'
+printf '\n'
+
+VERSION="$(grep -E '^VERSION=' /etc/yiimpoolversion.conf 2>/dev/null | cut -d= -f2- | tr -d '"' || true)"
+if [ -n "$VERSION" ]; then
+    case "$VERSION" in
+        v*) SHOWVER="$VERSION" ;;
+        *)  SHOWVER="v$VERSION" ;;
+    esac
+    printf 'Welcome to %s (SQSYIIMP %s).\n' "$DISTRIB_DESCRIPTION" "$SHOWVER"
+else
+    printf 'Welcome to %s (SQSYIIMP).\n' "$DISTRIB_DESCRIPTION"
+fi
+printf '\n'

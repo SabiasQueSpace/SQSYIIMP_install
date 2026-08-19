@@ -1,0 +1,23 @@
+[Unit]
+Description=SQSYIIMP YiiMP background screens
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+User=crypto-data
+Group=crypto-data
+
+Environment=HOME=/home/crypto-data
+Environment=YIIMP_USER=crypto-data
+Environment=YIIMP_HOME=/home/crypto-data
+Environment=YIIMP_SITE=/home/crypto-data/yiimp/site
+
+ExecStart=/usr/local/bin/yiimp-screens start
+ExecStop=/usr/local/bin/yiimp-screens stop
+
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

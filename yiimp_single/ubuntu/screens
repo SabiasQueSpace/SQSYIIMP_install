@@ -1,0 +1,134 @@
+#!/bin/sh -e
+
+############################################################################################################################
+# Source code from https://codereview.stackexchange.com/questions/55077/small-bash-script-to-start-and-stop-named-services #
+# SQSYIIMP - SabiasQue.Space
+############################################################################################################################
+
+# Source configuration files
+. /etc/yiimpool.conf
+. "$STORAGE_ROOT/yiimp/.prescreens.start.conf"
+
+# Commands to start screen sessions
+main="sudo -u crypto-data -H screen -dmS main ${CRONS}/main.sh"
+loop2="sudo -u crypto-data -H screen -dmS loop2 ${CRONS}/loop2.sh"
+blocks="sudo -u crypto-data -H screen -dmS blocks ${CRONS}/blocks.sh"
+debug="sudo -u crypto-data -H screen -dmS debug tail -F ${LOG_DIR}/debug.log"
+
+# Commands to stop screen sessions
+mainstop='sudo -u crypto-data -H screen -X -S main quit'
+loop2stop='sudo -u crypto-data -H screen -X -S loop2 quit'
+blocksstop='sudo -u crypto-data -H screen -X -S blocks quit'
+debugstop='sudo -u crypto-data -H screen -X -S debug quit'
+
+# Function to start/stop/restart services
+startstop_service() {
+    cmd=$1
+    name=$2
+    case $cmd in
+        start) sudo service "$name" start ;;
+        stop) sudo service "$name" stop ;;
+        restart)
+            sudo service "$name" stop
+            sleep 1
+            sudo service "$name" start
+            ;;
+        *)
+            echo "Invalid command: $cmd"
+            exit 1
+            ;;
+    esac
+}
+
+# Function to start/stop/restart main screen session
+startstop_main() {
+    cmd=$1
+    case $cmd in
+        start) $main ;;
+        stop) $mainstop ;;
+        restart)
+            $mainstop
+            sleep 1
+            $main
+            ;;
+        *)
+            echo "Invalid command: $cmd"
+            exit 1
+            ;;
+    esac
+}
+
+# Function to start/stop/restart loop2 screen session
+startstop_loop2() {
+    cmd=$1
+    case $cmd in
+        start) $loop2 ;;
+        stop) $loop2stop ;;
+        restart)
+            $loop2stop
+            sleep 1
+            $loop2
+            ;;
+        *)
+            echo "Invalid command: $cmd"
+            exit 1
+            ;;
+    esac
+}
+
+# Function to start/stop/restart blocks screen session
+startstop_blocks() {
+    cmd=$1
+    case $cmd in
+        start) $blocks ;;
+        stop) $blocksstop ;;
+        restart)
+            $blocksstop
+            sleep 1
+            $blocks
+            ;;
+        *)
+            echo "Invalid command: $cmd"
+            exit 1
+            ;;
+    esac
+}
+
+# Function to start/stop/restart debug screen session
+startstop_debug() {
+    cmd=$1
+    case $cmd in
+        start) $debug ;;
+        stop) $debugstop ;;
+        restart)
+            $debugstop
+            sleep 1
+            $debug
+            ;;
+        *)
+            echo "Invalid command: $cmd"
+            exit 1
+            ;;
+    esac
+}
+
+# Main script logic
+case "$1" in
+    start|stop|restart) cmd=$1 ;;
+    *)
+        echo "Usage: $0 [start|stop|restart] [servicename]"
+        exit 1
+        ;;
+esac
+
+shift
+
+for name; do
+    case "$name" in
+        main) startstop_main "$cmd" ;;
+        loop2) startstop_loop2 "$cmd" ;;
+        blocks) startstop_blocks "$cmd" ;;
+        debug) startstop_debug "$cmd" ;;
+        *) startstop_service "$cmd" "$name" ;;
+    esac
+done

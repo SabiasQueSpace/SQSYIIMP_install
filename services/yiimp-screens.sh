@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+
+set -u
+
+# ============================================================
+# SQSYIIMP - YiiMP Screen Manager
+# ============================================================
+
+YIIMP_USER="${YIIMP_USER:-crypto-data}"
+YIIMP_HOME="${YIIMP_HOME:-/home/crypto-data}"
+YIIMP_SITE="${YIIMP_SITE:-${YIIMP_HOME}/yiimp/site}"
+
+SCREEN_BIN="/usr/bin/screen"
+
+# ------------------------------------------------------------
+# Always operate as crypto-data
+# ------------------------------------------------------------
+
+if [[ "$(id -un)" != "${YIIMP_USER}" ]]; then
+    if [[ "${EUID}" -eq 0 ]]; then
+        exec runuser -u "${YIIMP_USER}" -- "$0" "$@"
+    else
+        exec sudo -u "${YIIMP_USER}" -H "$0" "$@"
+    fi
+fi
+
+export HOME="${YIIMP_HOME}"
+
+declare -A YIIMP_SCREEN_COMMANDS
+
+YIIMP_SCREEN_COMMANDS[loop2]="bash ${YIIMP_SITE}/crons/loop2.sh"
+YIIMP_SCREEN_COMMANDS[blocks]="bash ${YIIMP_SITE}/crons/blocks.sh"
+YIIMP_SCREEN_COMMANDS[main]="bash ${YIIMP_SITE}/crons/main.sh"
+YIIMP_SCREEN_COMMANDS[debug]="tail -F ${YIIMP_SITE}/log/debug.log"
+
+
+screen_exists()
+{
+    local name="$1"
+
+    "${SCREEN_BIN}" -ls 2>/dev/null |
+        grep -Eq "[0-9]+\.${name}[[:space:]]"
+}
+
+
+start_screen()
+{
+    local name="$1"
+    local command="${YIIMP_SCREEN_COMMANDS[$name]}"
+
+    if screen_exists "$name"; then
+        echo "OK: $name already running"
+        return 0
+    fi
+
+    echo "START: $name"
+    echo "CMD  : $command"
+
+    "${SCREEN_BIN}" \
+        -dmS "$name" \
+        bash -lc "exec ${command}"
+
+    sleep 1
+
+    if screen_exists "$name"; then
+        echo "OK: $name started as $(id -un)"
+        return 0
+    fi
+
+    echo "ERROR: $name failed to start"
+    return 1
+}
+
+
+stop_screen()
+{
+    local name="$1"
+
+    if ! screen_exists "$name"; then
+        echo "OK: $name is not running"
+        return 0
+    fi
+
+    echo "STOP: $name"
+
+    "${SCREEN_BIN}" \
+        -S "$name" \
+        -X quit 2>/dev/null || true
+
+    sleep 1
+
+    if screen_exists "$name"; then
+        echo "ERROR: unable to stop $name"
+        return 1
+    fi
+
+    echo "OK: $name stopped"
+}
+
+
+start_all()
+{
+    local failed=0
+
+    for name in loop2 blocks main debug; do
+        start_screen "$name" || failed=1
+    done
+
+    return "$failed"
+}
+
+
+stop_all()
+{
+    local failed=0
+
+    for name in debug main blocks loop2; do
+        stop_screen "$name" || failed=1
+    done
+
+    return "$failed"
+}
+
+
+status_all()
+{
+    echo
+    echo "=============================================="
+    echo " SQSYIIMP YiiMP Screen Status"
+    echo " User: $(id -un)"
+    echo "=============================================="
+    echo
+
+    for name in loop2 blocks main debug; do
+
+        if screen_exists "$name"; then
+            printf "%-10s : RUNNING\n" "$name"
+        else
+            printf "%-10s : STOPPED\n" "$name"
+        fi
+    done
+
+    echo
+    "${SCREEN_BIN}" -ls 2>/dev/null || true
+}
+
+
+attach_screen()
+{
+    local name="${1:-}"
+
+    if [[ -z "$name" ]]; then
+        echo "Usage: yiimp-screens attach <loop2|blocks|main|debug>"
+        exit 1
+    fi
+
+    if [[ -z "${YIIMP_SCREEN_COMMANDS[$name]+x}" ]]; then
+        echo "ERROR: unknown screen: $name"
+        exit 1
+    fi
+
+    if ! screen_exists "$name"; then
+        echo "ERROR: screen '$name' is not running"
+        exit 1
+    fi
+
+    exec "${SCREEN_BIN}" -d -r "$name"
+}
+
+
+case "${1:-status}" in
+
+    start)
+        if [[ -n "${2:-}" ]]; then
+            if [[ -z "${YIIMP_SCREEN_COMMANDS[$2]+x}" ]]; then
+                echo "ERROR: unknown target: $2"
+                exit 1
+            fi
+            start_screen "$2"
+        else
+            start_all
+        fi
+        ;;
+
+    stop)
+        if [[ -n "${2:-}" ]]; then
+            if [[ -z "${YIIMP_SCREEN_COMMANDS[$2]+x}" ]]; then
+                echo "ERROR: unknown target: $2"
+                exit 1
+            fi
+            stop_screen "$2"
+        else
+            stop_all
+        fi
+        ;;
+
+    restart)
+        if [[ -n "${2:-}" ]]; then
+            if [[ -z "${YIIMP_SCREEN_COMMANDS[$2]+x}" ]]; then
+                echo "ERROR: unknown target: $2"
+                exit 1
+            fi
+            stop_screen "$2"
+            sleep 1
+            start_screen "$2"
+        else
+            stop_all
+            sleep 1
+            start_all
+        fi
+        ;;
+
+    status)
+        if [[ -n "${2:-}" ]]; then
+            if [[ -z "${YIIMP_SCREEN_COMMANDS[$2]+x}" ]]; then
+                echo "ERROR: unknown target: $2"
+                exit 1
+            fi
+
+            if screen_exists "$2"; then
+                echo "$2 : RUNNING"
+            else
+                echo "$2 : STOPPED"
+            fi
+        else
+            status_all
+        fi
+        ;;
+
+    list)
+        "${SCREEN_BIN}" -ls
+        ;;
+
+    attach)
+        attach_screen "${2:-}"
+        ;;
+
+    wipe)
+        "${SCREEN_BIN}" -wipe
+        ;;
+
+    *)
+        echo "SQSYIIMP YiiMP Screen Manager"
+        echo
+        echo "Usage:"
+        echo "  yiimp-screens start"
+        echo "  yiimp-screens stop"
+        echo "  yiimp-screens restart"
+        echo "  yiimp-screens status"
+        echo "  yiimp-screens list"
+        echo "  yiimp-screens attach loop2"
+        echo "  yiimp-screens attach blocks"
+        echo "  yiimp-screens attach main"
+        echo "  yiimp-screens attach debug"
+        echo "  yiimp-screens wipe"
+        exit 1
+        ;;
+esac

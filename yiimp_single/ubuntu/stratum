@@ -1,0 +1,129 @@
+#!/bin/bash
+
+# Source configuration files
+source /etc/yiimpool.conf
+source $STORAGE_ROOT/yiimp/.yiimp.conf
+
+# Define variables
+STRATUM_DIR=$STORAGE_ROOT/yiimp/site/stratum
+LOG_DIR=$STORAGE_ROOT/yiimp/site/log
+
+# Define service names and corresponding stop/start commands using an array
+services=(
+    "sha256|sha256stop"
+    "sha256t|sha256tstop"
+    "lbry|lbrystop"
+    "scrypt|scryptstop"
+    "timetravel|timetravelstop"
+    "bitcore|bitcorestop"
+    "exosis|exosisstop"
+    "c11|c11stop"
+    "deep|deepstop"
+    "x11|x11stop"
+    "x11evo|x11evostop"
+    "x12|x12stop"
+    "x13|x13stop"
+    "x15|x15stop"
+    "x16r|x16rstop"
+    "x16s|x16sstop"
+    "x17|x17stop"
+    "x22i|x22istop"
+    "aergo|aergostop"
+    "xevan|xevanstop"
+    "hmq1725|hmq1725stop"
+    "nist5|nist5stop"
+    "x14|x14stop"
+    "quark|quarkstop"
+    "whirlpool|whirlpoolstop"
+    "neoscrypt|neoscryptstop"
+    "argon2|argon2stop"
+    "argon2ddyn|argon2ddynstop"
+    "scryptn|scryptnstop"
+    "allium|alliumstop"
+    "lbk3|lbk3stop"
+    "lyra2|lyra2stop"
+    "lyra2v2|lyra2v2stop"
+    "lyra2z|lyra2zstop"
+    "jha|jhastop"
+    "qubit|qubitstop"
+    "zr5|zr5stop"
+    "skein|skeinstop"
+    "sib|sibstop"
+    "keccak|keccakstop"
+    "keccakc|keccakcstop"
+    "heavyhash|heavyhashstop"
+    "hex|hexstop"
+    "skein2|skein2stop"
+    "dmdgr|dmdgrstop"
+    "myrgr|myrgrstop"
+    "zr5|zr5stop"
+    "blake|blakestop"
+    "blakecoin|blakecoinstop"
+    "cosa|cosastop"
+    "decred|decredstop"
+    "vanilla|vanillastop"
+    "blake2s|blake2sstop"
+    "penta|pentastop"
+    "rainforest|rainforeststop"
+    "luffa|luffastop"
+    "m7m|m7mstop"
+    "minotaur|minotaurstop"
+    "minotaurx|minotaurxstop"
+    "veltor|veltorstop"
+    "velvet|velvetstop"
+    "vitalium|vitaliumstop"
+    "yescrypt|yescryptstop"
+    "yescryptR16|yescryptR16stop"
+    "yescryptR32|yescryptR32stop"
+    "bastion|bastionstop"
+    "hsr|hsrstop"
+    "phi|phistop"
+    "phi2|phi2stop"
+    "polytimos|polytimosstop"
+    "skunk|skunkstop"
+    "tribus|tribusstop"
+    "a5a|a5astop"
+    "x16rv2|x16rv2stop"
+)
+
+# Function to start/stop/restart services
+startstop_service() {
+    local cmd="$1"
+    local service_name="$2"
+    local start_cmd="screen -dmS $service_name bash $STRATUM_DIR/run.sh $service_name"
+    local stop_cmd="screen -X -S $service_name quit"
+
+    case $service_name in
+        *stop)
+            $stop_cmd
+            ;;
+        *start)
+            $start_cmd
+            ;;
+        *restart)
+            $stop_cmd
+            sleep 1
+            $start_cmd
+            ;;
+    esac
+}
+
+# Loop through each service and define corresponding functions
+for service in "${services[@]}"; do
+    service_name="${service%%|*}"
+    stop_function="${service##*|}"
+    start_function="startstop_$service_name"
+
+    # Define function dynamically
+    eval "
+    $start_function() {
+        cmd=\$1
+        startstop_service \"\$cmd\" \"$service_name\"
+    }
+    "
+done
+
+# Example usage:
+# startstop_sha256 start
+# startstop_sha256 stop
+# startstop_sha256 restart

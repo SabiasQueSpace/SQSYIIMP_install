@@ -1,0 +1,32 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Local configuration
+yiimp_single/.wireguard.install.cnf
+
+# Local backups
+*.antes-*
+*.before-*
+*.backup.*
+*.bak.*
+
+# Runtime files
+*.log
+*.pid
+*.sock
+
+# Private credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local configuration and backups
+*.bak-*
+*~
+
+# Runtime files

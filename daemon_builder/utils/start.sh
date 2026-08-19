@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+
+# Restore the terminal when DaemonBuilder exits.
+daemonbuilder_terminal_cleanup() {
+    # Restore normal attributes and visible cursor.
+    printf '\033[0m'
+    printf '\033[?25h'
+
+    # Clear the complete screen and return cursor to home.
+    printf '\033[2J\033[H'
+}
+
+trap daemonbuilder_terminal_cleanup EXIT INT TERM
+
 #####################################################
 # This is the entry point for configuring the system.
 # SQSYIIMP - SabiasQue.Space

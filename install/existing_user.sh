@@ -31,17 +31,32 @@ sudo chmod +x /usr/bin/yiimpool
 cd $HOME/sqsyiimp/install
 source pre_setup.sh
 
-# Create the STORAGE_USER and STORAGE_ROOT directory if they don't already exist.
-if ! id -u $STORAGE_USER >/dev/null 2>&1; then
-sudo useradd -m $STORAGE_USER
+# Create the dedicated storage/service account and its data root.
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+
+if ! getent group "$STORAGE_GROUP" >/dev/null 2>&1; then
+    sudo groupadd "$STORAGE_GROUP"
 fi
-if [ ! -d $STORAGE_ROOT ]; then
-sudo mkdir -p $STORAGE_ROOT
+
+if ! id -u "$STORAGE_USER" >/dev/null 2>&1; then
+    sudo useradd \
+        --create-home \
+        --home-dir "$STORAGE_ROOT" \
+        --gid "$STORAGE_GROUP" \
+        --shell /usr/sbin/nologin \
+        "$STORAGE_USER"
 fi
+
+sudo install -d \
+    -o "$STORAGE_USER" \
+    -g "$STORAGE_GROUP" \
+    -m 755 \
+    "$STORAGE_ROOT"
 
 # Save the global options in /etc/yiimpool.conf so that standalone
 # tools know where to look for data.
 echo 'STORAGE_USER='"${STORAGE_USER}"'
+STORAGE_GROUP='"${STORAGE_GROUP}"'
 STORAGE_ROOT='"${STORAGE_ROOT}"'
 PUBLIC_IP='"${PUBLIC_IP}"'
 PUBLIC_IPV6='"${PUBLIC_IPV6}"'

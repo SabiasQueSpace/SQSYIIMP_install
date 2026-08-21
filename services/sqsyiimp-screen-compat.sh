@@ -9,7 +9,7 @@
 #   screen -r blocks
 #   screen -r debug
 #
-# Managed YiiMP screens actually belong to crypto-data.
+# Managed YiiMP screens belong to the configured YIIMP_USER.
 #
 # All other screen commands continue using the real
 # /usr/bin/screen as the current user.
@@ -17,6 +17,13 @@
 
 [[ -n "${BASH_VERSION:-}" ]] || return 0
 [[ $- == *i* ]] || return 0
+
+if [[ -r /etc/default/sqsyiimp ]]; then
+    # shellcheck disable=SC1091
+    source /etc/default/sqsyiimp
+fi
+
+YIIMP_USER="${YIIMP_USER:-crypto-data}"
 
 
 screen()
@@ -35,12 +42,12 @@ screen()
         echo "=== Screens: $(id -un) ==="
         /usr/bin/screen -ls || true
 
-        if id crypto-data >/dev/null 2>&1 &&
-           [[ "$(id -un)" != "crypto-data" ]]; then
+        if id "${YIIMP_USER}" >/dev/null 2>&1 &&
+           [[ "$(id -un)" != "${YIIMP_USER}" ]]; then
 
             echo
-            echo "=== SQSYIIMP Screens: crypto-data ==="
-            sudo -u crypto-data -H /usr/bin/screen -ls || true
+            echo "=== SQSYIIMP Screens: ${YIIMP_USER} ==="
+            sudo -u "${YIIMP_USER}" -H /usr/bin/screen -ls || true
         fi
 
         return
@@ -63,10 +70,10 @@ screen()
 
     if [[ "$managed" == "true" ]]; then
 
-        if [[ "$(id -un)" == "crypto-data" ]]; then
+        if [[ "$(id -un)" == "${YIIMP_USER}" ]]; then
             /usr/bin/screen "$@"
         else
-            sudo -u crypto-data -H /usr/bin/screen "$@"
+            sudo -u "${YIIMP_USER}" -H /usr/bin/screen "$@"
         fi
 
     else

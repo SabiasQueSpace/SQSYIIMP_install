@@ -303,10 +303,10 @@ else
   coinport='""''"${coinport}"''""'
   ' | sudo -E tee /tmp/var_tmp.conf >/dev/null 2>&1
 fi
-script_config="/home/crypto-data/yiimp/site/stratum/config/$coinsymbollower.$coinalgo.conf"
-script_stratum="/home/crypto-data/yiimp/site/stratum/config/stratum.${coinsymbollower}"
+script_config="${STORAGE_ROOT}/yiimp/site/stratum/config/$coinsymbollower.$coinalgo.conf"
+script_stratum="${STORAGE_ROOT}/yiimp/site/stratum/config/stratum.${coinsymbollower}"
 script_source='/tmp/var_tmp.conf'
-script_remote="/home/crypto-data/yiimp/remote.sh"
+script_remote="${STORAGE_ROOT}/yiimp/remote.sh"
 
 remote_script='/tmp/remote.sh'
 

@@ -146,6 +146,165 @@ mhp_install_coin_binary()
 
 # === END MHP CANONICAL COIN BINARIES ===
 
+# === MHP SAFE DAEMON SHUTDOWN ================================================
+
+mhp_resolve_daemon_path()
+{
+    local daemon_name="${1:-}"
+    local path="/usr/bin/${daemon_name}"
+
+    if [[ -e "$path" || -L "$path" ]]; then
+        readlink -f "$path" 2>/dev/null || printf '%s\n' "$path"
+    else
+        printf '%s\n' "$path"
+    fi
+}
+
+mhp_pid_is_daemon()
+{
+    local pid="${1:-}"
+    local daemon_name="${2:-}"
+    local expected_path=""
+    local exe=""
+
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    [[ -e "/proc/${pid}" ]] || return 1
+
+    expected_path="$(mhp_resolve_daemon_path "$daemon_name")"
+
+    exe="$(sudo readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
+    exe="${exe% (deleted)}"
+
+    [[ -n "$exe" && "$exe" == "$expected_path" ]]
+}
+
+mhp_find_daemon_pids()
+{
+    local daemon_name="${1:-}"
+    local expected_path=""
+    local proc=""
+    local pid=""
+    local exe=""
+
+    expected_path="$(mhp_resolve_daemon_path "$daemon_name")"
+
+    for proc in /proc/[0-9]*; do
+        [[ -e "$proc" ]] || continue
+
+        pid="${proc##*/}"
+
+        exe="$(sudo readlink -f "$proc/exe" 2>/dev/null || true)"
+        exe="${exe% (deleted)}"
+
+        [[ -n "$exe" && "$exe" == "$expected_path" ]] || continue
+
+        printf '%s\n' "$pid"
+    done
+}
+
+mhp_check_datadir_locks()
+{
+    local datadir="${1:-}"
+    local lock=""
+    local holders=""
+    local found=0
+
+    [[ -n "$datadir" && -d "$datadir" ]] || return 0
+
+    # fuser is used only to determine whether a lock is actively held.
+    # Lock files themselves are NEVER deleted here.
+    command -v fuser >/dev/null 2>&1 || return 0
+
+    for lock in \
+        "$datadir/.lock" \
+        "$datadir/chainstate/LOCK" \
+        "$datadir/blocks/index/LOCK"
+    do
+        [[ -e "$lock" ]] || continue
+
+        holders="$(sudo fuser "$lock" 2>/dev/null || true)"
+
+        if [[ -n "$holders" ]]; then
+            print_error "Lock still held: $lock"
+            print_error "Process(es): $holders"
+            found=1
+        fi
+    done
+
+    [[ "$found" -eq 0 ]]
+}
+
+mhp_wait_for_daemon_shutdown()
+{
+    local daemon_pids="${1:-}"
+    local daemon_name="${2:-}"
+    local datadir="${3:-}"
+    local timeout="${4:-1800}"
+
+    local elapsed=0
+    local pid=""
+    local alive=0
+    local current_pids=""
+
+    [[ -z "${daemon_pids// }" ]] && return 0
+
+    print_status "Waiting for ${daemon_name} to shut down cleanly..."
+
+    while (( elapsed < timeout )); do
+        alive=0
+
+        for pid in $daemon_pids; do
+            if mhp_pid_is_daemon "$pid" "$daemon_name"; then
+                alive=1
+                break
+            fi
+        done
+
+        (( alive == 0 )) && break
+
+        if (( elapsed % 10 == 0 )); then
+            echo -ne \
+                "${GREEN}  Waiting for ${YELLOW}${daemon_name}${GREEN} shutdown: ${CYAN}${elapsed}s${NC}\033[0K\r"
+        fi
+
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    echo
+
+    if (( alive != 0 )); then
+        print_error "${daemon_name} did not stop within ${timeout} seconds"
+        print_error "Binary replacement aborted to protect the blockchain database"
+        return 1
+    fi
+
+    # Make sure the daemon was not automatically restarted with another PID.
+    current_pids="$(mhp_find_daemon_pids "$daemon_name" | tr '\n' ' ')"
+
+    if [[ -n "${current_pids// }" ]]; then
+        print_error \
+            "${daemon_name} is still/re-again running (PID(s): ${current_pids})"
+
+        print_error "Binary replacement aborted"
+        return 1
+    fi
+
+    if ! mhp_check_datadir_locks "$datadir"; then
+        print_error "Database lock still active in ${datadir}"
+        print_error "Binary replacement aborted"
+        return 1
+    fi
+
+    print_success \
+        "${daemon_name} stopped cleanly after ${elapsed} seconds"
+
+    return 0
+}
+
+# === END MHP SAFE DAEMON SHUTDOWN ============================================
+
+
 
 # This is the source file that compiles coin daemon.
 #
@@ -1084,27 +1243,36 @@ if [[ "$precompiled" == "true" ]]; then
     if [[ -f "$FILECOIN" ]]; then
         DAEMOND="true"
         SERVICE="${coind}"
-        if pgrep -x "$SERVICE" >/dev/null; then
+        if [[ "${YIIMPCONF}" == "true" ]]; then
+            DAEMON_DATADIR="$STORAGE_ROOT/wallets/.${coin,,}"
+        else
+            DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
+        fi
+        DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+        if [[ -n "${DAEMON_PIDS// }" ]]; then
             if [[ ("${YIIMPCONF}" == "true") ]]; then
                 if [[ ("$ifcoincli" == "y" || "$ifcoincli" == "Y") ]]; then
-                    sudo -u crypto-data "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 else
-                    sudo -u crypto-data "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 fi
             else
                 if [[ ("$ifcoincli" == "y" || "$ifcoincli" == "Y") ]]; then
-                    sudo -u crypto-data "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 else
-                    sudo -u crypto-data "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 fi
             fi
             echo -e "$CYAN --------------------------------------------------------------------------- $NC"
-            secstosleep=$((1 * 20))
-            while [ $secstosleep -gt 0 ]; do
-                echo -ne "$GREEN	STOP THE DAEMON => $YELLOW${coind}$GREEN Sleep $CYAN$secstosleep$GREEN ...$NC\033[0K\r"
-
-                : $((secstosleep--))
-            done
+            if ! mhp_wait_for_daemon_shutdown \
+                "$DAEMON_PIDS" \
+                "$coind" \
+                "$DAEMON_DATADIR" \
+                1800
+            then
+                print_error "Refusing to replace $coind while the old daemon is still active"
+                return 1 2>/dev/null || exit 1
+            fi
             echo -e "$CYAN --------------------------------------------------------------------------- $NC $GREEN"
             echo -e "$GREEN Done... $NC"
             echo -e "$NC$CYAN --------------------------------------------------------------------------- $NC"
@@ -1145,27 +1313,36 @@ if [[ ("$precompiled" == "true") ]]; then
         if [[ -f "$FILECOIN" ]]; then
             DAEMOND="true"
             SERVICE="${coind}"
-            if pgrep -x "$SERVICE" >/dev/null; then
+            if [[ "${YIIMPCONF}" == "true" ]]; then
+                DAEMON_DATADIR="$STORAGE_ROOT/wallets/.${coin,,}"
+            else
+                DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
+            fi
+            DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+            if [[ -n "${DAEMON_PIDS// }" ]]; then
                 if [[ ("${YIIMPCONF}" == "true") ]]; then
                     if [[ -f "$COINCLIFIND" ]]; then
-                        sudo -u crypto-data "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     else
-                        sudo -u crypto-data "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     fi
                 else
                     if [[ -f "${COINCLIFIND}" ]]; then
-                        sudo -u crypto-data "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     else
-                        sudo -u crypto-data "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     fi
                 fi
                 echo -e "$CYAN --------------------------------------------------------------------------- $NC"
-                secstosleep=$((1 * 20))
-                while [ $secstosleep -gt 0 ]; do
-                    echo -ne "$GREEN	STOP THE DAEMON => $YELLOW${coind}$GREEN Sleep $CYAN$secstosleep$GREEN ...$NC"
-
-                    : $((secstosleep--))
-                done
+                if ! mhp_wait_for_daemon_shutdown \
+                    "$DAEMON_PIDS" \
+                    "$coind" \
+                    "$DAEMON_DATADIR" \
+                    1800
+                then
+                    print_error "Refusing to replace $coind while the old daemon is still active"
+                    return 1 2>/dev/null || exit 1
+                fi
                 echo -e "$CYAN --------------------------------------------------------------------------- $NC $GREEN"
                 echo -e "$GREEN Done... $NC"
                 echo -e "$NC$CYAN --------------------------------------------------------------------------- $NC"
@@ -1446,12 +1623,19 @@ fi
 
 if [[ "$YIIMPCONF" == "true" ]]; then
     # Make the new wallet folder have user paste the coin.conf and finally start the daemon
-    if [[ ! -e "$STORAGE_ROOT/wallets" ]]; then
-        sudo mkdir -p $STORAGE_ROOT/wallets
-    fi
+    # Wallet storage always belongs to the dedicated storage/service user.
+    sudo install -d \
+        -o "${STORAGE_USER:-crypto-data}" \
+        -g "${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" \
+        -m 750 \
+        "$STORAGE_ROOT/wallets"
 
-    sudo setfacl -m u:${USERSERVER}:rwx $STORAGE_ROOT/wallets
-    mkdir -p "$STORAGE_ROOT/wallets/.${coin,,}"
+    # Allow the administrative user to manage wallet files when needed.
+    sudo install -d \
+        -o "${STORAGE_USER:-crypto-data}" \
+        -g "${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" \
+        -m 750 \
+        "$STORAGE_ROOT/wallets/.${coin,,}"
 
     if [[ "$coinwalletmv" == "true" ]]; then
         echo
@@ -1460,7 +1644,10 @@ if [[ "$YIIMPCONF" == "true" ]]; then
         echo -e "$GREEN   Creating WALLET.DAT to => ${STORAGE_ROOT}/wallets/.${coin,,}/wallet.dat          $NC"
         echo -e "$CYAN ----------------------------------------------------------------------------------- 	$NC"
         echo
-        "${coinwallet}" -datadir="${STORAGE_ROOT}/wallets/.${coin,,}" -wallet=. create
+        sudo -u "${STORAGE_USER:-crypto-data}" \
+            "${coinwallet}" \
+            -datadir="${STORAGE_ROOT}/wallets/.${coin,,}" \
+            -wallet=. create
     fi
 fi
 
@@ -1520,10 +1707,10 @@ if [[ ("$DAEMOND" != "true") ]]; then
 
     COIN_WALLET_CONF="${COIN_WALLET_DIR}/${COIN_WALLET_NAME}.conf"
 
-    # YiiMP daemons run under crypto-data.
-    # Wallet directories/configs must therefore belong to crypto-data.
+    # YiiMP daemons run under STORAGE_USER.
+    # Wallet directories/configs must therefore belong to STORAGE_USER.
     if [[ "${YIIMPCONF}" == "true" ]]; then
-        CONF_OWNER="crypto-data"
+        CONF_OWNER="${STORAGE_USER:-crypto-data}"
     else
         CONF_OWNER="${USERSERVER:-$USER}"
     fi
@@ -1707,7 +1894,7 @@ DAEMON_AUTOSTART_OK=false
 
 if [[ "${YIIMPCONF}" == "true" ]]; then
 
-    if sudo -u crypto-data "/usr/bin/${coind}" \
+    if sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" \
         -datadir="${STORAGE_ROOT}/wallets/.${coin,,}" \
         -conf="${coin,,}.conf" \
         -daemon \
@@ -1724,12 +1911,12 @@ if [[ "${YIIMPCONF}" == "true" ]]; then
     # --------------------------------------------------------
     if [[ "${DAEMON_START_OK}" == "true" ]]; then
 
-        print_status "Registering ${coin^^} daemon for autostart as crypto-data..."
+        print_status "Registering ${coin^^} daemon for autostart as ${STORAGE_USER:-crypto-data}..."
 
         DAEMON_BOOT_LOG="/var/log/${coin,,}-daemon-boot.log"
 
         sudo touch "${DAEMON_BOOT_LOG}"
-        sudo chown crypto-data:crypto-data "${DAEMON_BOOT_LOG}"
+        sudo chown "${STORAGE_USER:-crypto-data}:${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" "${DAEMON_BOOT_LOG}"
         sudo chmod 664 "${DAEMON_BOOT_LOG}"
 
         # Remove legacy entry from current user's crontab.
@@ -1741,17 +1928,17 @@ if [[ "${YIIMPCONF}" == "true" ]]; then
 
         # Remove previous canonical entry.
         (
-            sudo -u crypto-data crontab -l 2>/dev/null |
+            sudo -u "${STORAGE_USER:-crypto-data}" crontab -l 2>/dev/null |
             grep -v "/usr/bin/${coind} -datadir=${STORAGE_ROOT}/wallets/.${coin,,}"
-        ) | sudo -u crypto-data crontab - 2>/dev/null || true
+        ) | sudo -u "${STORAGE_USER:-crypto-data}" crontab - 2>/dev/null || true
 
         # Install canonical entry.
         (
-            sudo -u crypto-data crontab -l 2>/dev/null
+            sudo -u "${STORAGE_USER:-crypto-data}" crontab -l 2>/dev/null
             echo "@reboot sleep 30 && /usr/bin/${coind} -datadir=${STORAGE_ROOT}/wallets/.${coin,,} -conf=${coin,,}.conf -daemon -shrinkdebugfile >> ${DAEMON_BOOT_LOG} 2>&1"
-        ) | sudo -u crypto-data crontab -
+        ) | sudo -u "${STORAGE_USER:-crypto-data}" crontab -
 
-        if sudo -u crypto-data crontab -l 2>/dev/null |
+        if sudo -u "${STORAGE_USER:-crypto-data}" crontab -l 2>/dev/null |
             grep -Fq "/usr/bin/${coind} -datadir=${STORAGE_ROOT}/wallets/.${coin,,}"
         then
             DAEMON_AUTOSTART_OK=true
@@ -1869,7 +2056,7 @@ if [[ "${YIIMPCONF}" == "true" ]]; then
     fi
 
     if [[ "${DAEMON_AUTOSTART_OK}" == "true" ]]; then
-        print_success "Autostart enabled for crypto-data"
+        print_success "Autostart enabled for ${STORAGE_USER:-crypto-data}"
         print_info "Boot log     : ${YELLOW}${DAEMON_BOOT_LOG}${NC}"
     else
         print_warning "Autostart not verified"

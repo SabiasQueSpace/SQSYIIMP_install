@@ -146,6 +146,165 @@ mhp_install_coin_binary()
 
 # === END MHP CANONICAL COIN BINARIES ===
 
+# === MHP SAFE DAEMON SHUTDOWN ================================================
+
+mhp_resolve_daemon_path()
+{
+    local daemon_name="${1:-}"
+    local path="/usr/bin/${daemon_name}"
+
+    if [[ -e "$path" || -L "$path" ]]; then
+        readlink -f "$path" 2>/dev/null || printf '%s\n' "$path"
+    else
+        printf '%s\n' "$path"
+    fi
+}
+
+mhp_pid_is_daemon()
+{
+    local pid="${1:-}"
+    local daemon_name="${2:-}"
+    local expected_path=""
+    local exe=""
+
+    [[ "$pid" =~ ^[0-9]+$ ]] || return 1
+    [[ -e "/proc/${pid}" ]] || return 1
+
+    expected_path="$(mhp_resolve_daemon_path "$daemon_name")"
+
+    exe="$(sudo readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
+    exe="${exe% (deleted)}"
+
+    [[ -n "$exe" && "$exe" == "$expected_path" ]]
+}
+
+mhp_find_daemon_pids()
+{
+    local daemon_name="${1:-}"
+    local expected_path=""
+    local proc=""
+    local pid=""
+    local exe=""
+
+    expected_path="$(mhp_resolve_daemon_path "$daemon_name")"
+
+    for proc in /proc/[0-9]*; do
+        [[ -e "$proc" ]] || continue
+
+        pid="${proc##*/}"
+
+        exe="$(sudo readlink -f "$proc/exe" 2>/dev/null || true)"
+        exe="${exe% (deleted)}"
+
+        [[ -n "$exe" && "$exe" == "$expected_path" ]] || continue
+
+        printf '%s\n' "$pid"
+    done
+}
+
+mhp_check_datadir_locks()
+{
+    local datadir="${1:-}"
+    local lock=""
+    local holders=""
+    local found=0
+
+    [[ -n "$datadir" && -d "$datadir" ]] || return 0
+
+    # fuser is used only to determine whether a lock is actively held.
+    # Lock files themselves are NEVER deleted here.
+    command -v fuser >/dev/null 2>&1 || return 0
+
+    for lock in \
+        "$datadir/.lock" \
+        "$datadir/chainstate/LOCK" \
+        "$datadir/blocks/index/LOCK"
+    do
+        [[ -e "$lock" ]] || continue
+
+        holders="$(sudo fuser "$lock" 2>/dev/null || true)"
+
+        if [[ -n "$holders" ]]; then
+            print_error "Lock still held: $lock"
+            print_error "Process(es): $holders"
+            found=1
+        fi
+    done
+
+    [[ "$found" -eq 0 ]]
+}
+
+mhp_wait_for_daemon_shutdown()
+{
+    local daemon_pids="${1:-}"
+    local daemon_name="${2:-}"
+    local datadir="${3:-}"
+    local timeout="${4:-1800}"
+
+    local elapsed=0
+    local pid=""
+    local alive=0
+    local current_pids=""
+
+    [[ -z "${daemon_pids// }" ]] && return 0
+
+    print_status "Waiting for ${daemon_name} to shut down cleanly..."
+
+    while (( elapsed < timeout )); do
+        alive=0
+
+        for pid in $daemon_pids; do
+            if mhp_pid_is_daemon "$pid" "$daemon_name"; then
+                alive=1
+                break
+            fi
+        done
+
+        (( alive == 0 )) && break
+
+        if (( elapsed % 10 == 0 )); then
+            echo -ne \
+                "${GREEN}  Waiting for ${YELLOW}${daemon_name}${GREEN} shutdown: ${CYAN}${elapsed}s${NC}\033[0K\r"
+        fi
+
+        sleep 2
+        elapsed=$((elapsed + 2))
+    done
+
+    echo
+
+    if (( alive != 0 )); then
+        print_error "${daemon_name} did not stop within ${timeout} seconds"
+        print_error "Binary replacement aborted to protect the blockchain database"
+        return 1
+    fi
+
+    # Make sure the daemon was not automatically restarted with another PID.
+    current_pids="$(mhp_find_daemon_pids "$daemon_name" | tr '\n' ' ')"
+
+    if [[ -n "${current_pids// }" ]]; then
+        print_error \
+            "${daemon_name} is still/re-again running (PID(s): ${current_pids})"
+
+        print_error "Binary replacement aborted"
+        return 1
+    fi
+
+    if ! mhp_check_datadir_locks "$datadir"; then
+        print_error "Database lock still active in ${datadir}"
+        print_error "Binary replacement aborted"
+        return 1
+    fi
+
+    print_success \
+        "${daemon_name} stopped cleanly after ${elapsed} seconds"
+
+    return 0
+}
+
+# === END MHP SAFE DAEMON SHUTDOWN ============================================
+
+
 
 #
 # This is the option update coin daemon menu
@@ -1015,27 +1174,36 @@ printf '\n'
     if [[ -f "$FILECOIN" ]]; then
         DAEMOND="true"
         SERVICE="${coind}"
-        if pgrep -x "$SERVICE" >/dev/null; then
+        if [[ "${YIIMPCONF}" == "true" ]]; then
+            DAEMON_DATADIR="$STORAGE_ROOT/wallets/.${coin,,}"
+        else
+            DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
+        fi
+        DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+        if [[ -n "${DAEMON_PIDS// }" ]]; then
             if [[ ("${YIIMPCONF}" == "true") ]]; then
                 if [[ ("$ifcoincli" == "y" || "$ifcoincli" == "Y") ]]; then
-                    sudo -u crypto-data "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 else
-                    sudo -u crypto-data "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 fi
             else
                 if [[ ("$ifcoincli" == "y" || "$ifcoincli" == "Y") ]]; then
-                    sudo -u crypto-data "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 else
-                    sudo -u crypto-data "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 fi
             fi
             print_status "Stopping daemon ${coind}..."
-            secstosleep=$((1 * 20))
-            while [ $secstosleep -gt 0 ]; do
-                echo -ne "${GREEN}  Stopping ${YELLOW}${coind}${GREEN} - waiting ${CYAN}${secstosleep}${GREEN}s...${NC}\033[0K\r"
-                sleep 1
-                : $((secstosleep--))
-            done
+            if ! mhp_wait_for_daemon_shutdown \
+                "$DAEMON_PIDS" \
+                "$coind" \
+                "$DAEMON_DATADIR" \
+                1800
+            then
+                print_error "Refusing to replace $coind while the old daemon is still active"
+                return 1 2>/dev/null || exit 1
+            fi
             echo
             print_success "Daemon stopped"
         fi
@@ -1066,27 +1234,36 @@ if [[ ("$precompiled" == "true") ]]; then
         if [[ -f "$FILECOIN" ]]; then
             DAEMOND="true"
             SERVICE="${coind}"
-            if pgrep -x "$SERVICE" >/dev/null; then
+            if [[ "${YIIMPCONF}" == "true" ]]; then
+                DAEMON_DATADIR="$STORAGE_ROOT/wallets/.${coin,,}"
+            else
+                DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
+            fi
+            DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+            if [[ -n "${DAEMON_PIDS// }" ]]; then
                 if [[ ("${YIIMPCONF}" == "true") ]]; then
                     if [[ -f "$COINCLIFIND" ]]; then
-                        sudo -u crypto-data "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     else
-                        sudo -u crypto-data "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     fi
                 else
                     if [[ -f "${COINCLIFIND}" ]]; then
-                        sudo -u crypto-data "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     else
-                        sudo -u crypto-data "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                        sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                     fi
                 fi
                 print_status "Stopping daemon ${coind}..."
-                secstosleep=$((1 * 20))
-                while [ $secstosleep -gt 0 ]; do
-                    echo -ne "${GREEN}  Stopping ${YELLOW}${coind}${GREEN} - waiting ${CYAN}${secstosleep}${GREEN}s...${NC}\033[0K\r"
-                    sleep 1
-                    : $((secstosleep--))
-                done
+                if ! mhp_wait_for_daemon_shutdown \
+                    "$DAEMON_PIDS" \
+                    "$coind" \
+                    "$DAEMON_DATADIR" \
+                    1800
+                then
+                    print_error "Refusing to replace $coind while the old daemon is still active"
+                    return 1 2>/dev/null || exit 1
+                fi
                 echo
                 print_success "Daemon stopped"
             fi
@@ -1249,27 +1426,36 @@ else
     if [[ -f "$FILECOIN" ]]; then
         DAEMOND="true"
         SERVICE="${coind}"
-        if pgrep -x "$SERVICE" >/dev/null; then
+        if [[ "${YIIMPCONF}" == "true" ]]; then
+            DAEMON_DATADIR="$STORAGE_ROOT/wallets/.${coin,,}"
+        else
+            DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
+        fi
+        DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+        if [[ -n "${DAEMON_PIDS// }" ]]; then
             if [[ ("${YIIMPCONF}" == "true") ]]; then
                 if [[ -n "$COINCLIFIND" ]]; then
-                    sudo -u crypto-data "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 else
-                    sudo -u crypto-data "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 fi
             else
                 if [[ -n "$COINCLIFIND" ]]; then
-                    sudo -u crypto-data "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coincli}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 else
-                    sudo -u crypto-data "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
+                    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf stop
                 fi
             fi
             print_status "Stopping daemon ${coind}..."
-            secstosleep=$((1 * 20))
-            while [ $secstosleep -gt 0 ]; do
-                echo -ne "${GREEN}  Stopping ${YELLOW}${coind}${GREEN} - waiting ${CYAN}${secstosleep}${GREEN}s...${NC}\033[0K\r"
-                sleep 1
-                : $((secstosleep--))
-            done
+            if ! mhp_wait_for_daemon_shutdown \
+                "$DAEMON_PIDS" \
+                "$coind" \
+                "$DAEMON_DATADIR" \
+                1800
+            then
+                print_error "Refusing to replace $coind while the old daemon is still active"
+                return 1 2>/dev/null || exit 1
+            fi
             echo
             print_success "Daemon stopped"
         fi
@@ -1424,10 +1610,10 @@ print_header "Starting Daemon"
 print_status "Initializing ${coin^^} daemon..."
 
 if [[ "$YIIMPCONF" == "true" ]]; then
-    sudo -u crypto-data "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf -daemon -shrinkdebugfile
+    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=$STORAGE_ROOT/wallets/."${coin,,}" -conf="${coin,,}".conf -daemon -shrinkdebugfile
     print_success "${coin^^} daemon started successfully"
 else
-    sudo -u crypto-data "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf -daemon -shrinkdebugfile
+    sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" -datadir=${absolutepath}/wallets/."${coin,,}" -conf="${coin,,}".conf -daemon -shrinkdebugfile
     print_success "${coin^^} daemon started successfully"
 fi
 

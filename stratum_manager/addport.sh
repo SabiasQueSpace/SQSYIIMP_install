@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 
 # === MEGAHASHPOOL FREE STRATUM PORT ===
+#
+# Safety rule:
+#   - NEVER kill an unknown process just because it owns a TCP port.
+#   - This helper only verifies that the selected port is free.
+#
 free_stratum_port() {
     local port="$1"
+    local listeners=""
+    local pids=""
+    local pid=""
+    local cmd=""
 
     if [[ -z "$port" ]]; then
         echo "ERROR: Stratum port is empty"
@@ -16,87 +25,46 @@ free_stratum_port() {
 
     echo "INFO: Checking Stratum port $port..."
 
-    # ¿Está escuchando?
-    if ! sudo ss -lntp 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
+    listeners="$(
+        sudo ss -lntpH 2>/dev/null |
+        awk -v port="$port" '
+            $4 ~ (":" port "$") {
+                print
+            }
+        '
+    )"
+
+    if [[ -z "$listeners" ]]; then
         echo "SUCCESS: Port $port is available"
         return 0
     fi
 
-    echo "WARNING: Port $port is currently in use"
+    echo "ERROR: Port $port is already in use."
+    echo "ERROR: SQSYIIMP will NOT terminate the owning process automatically."
+    echo
+    echo "Listener(s):"
+    printf '%s\n' "$listeners"
 
-    local pids
-
-    pids=$(
-        sudo ss -lntp 2>/dev/null |
-        grep -E ":${port}[[:space:]]" |
+    pids="$(
+        printf '%s\n' "$listeners" |
         grep -oE 'pid=[0-9]+' |
         cut -d= -f2 |
         sort -u
-    )
-
-    if [[ -z "$pids" ]]; then
-        echo "ERROR: Port $port is busy but PID could not be detected"
-        sudo ss -lntp 2>/dev/null | grep -E ":${port}[[:space:]]" || true
-        return 1
-    fi
-
-    echo "INFO: Process(es) using port $port: $pids"
-
-    local pid
-    local cmd
-
-    for pid in $pids; do
-        cmd=$(ps -p "$pid" -o args= 2>/dev/null || true)
-
-        echo "INFO: PID $pid"
-        echo "INFO: Command: $cmd"
-        echo "INFO: Sending SIGTERM to PID $pid"
-
-        sudo kill -TERM "$pid" 2>/dev/null || true
-    done
-
-    # Esperar hasta 5 segundos
-    local n
-
-    for n in 1 2 3 4 5; do
-        sleep 1
-
-        if ! sudo ss -lntp 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
-            echo "SUCCESS: Port $port has been released"
-            return 0
-        fi
-
-        echo "INFO: Waiting for port $port to be released... ($n/5)"
-    done
-
-    echo "WARNING: Port $port is still in use"
-
-    pids=$(
-        sudo ss -lntp 2>/dev/null |
-        grep -E ":${port}[[:space:]]" |
-        grep -oE 'pid=[0-9]+' |
-        cut -d= -f2 |
-        sort -u
-    )
+    )"
 
     if [[ -n "$pids" ]]; then
-        echo "WARNING: Force killing process(es): $pids"
+        echo
+        echo "Process(es):"
 
         for pid in $pids; do
-            sudo kill -KILL "$pid" 2>/dev/null || true
+            cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+            printf '  PID %-8s %s\n' "$pid" "${cmd:-UNKNOWN}"
         done
     fi
 
-    sleep 1
-
-    if sudo ss -lntp 2>/dev/null | grep -qE ":${port}[[:space:]]"; then
-        echo "ERROR: Could not release port $port"
-        sudo ss -lntp 2>/dev/null | grep -E ":${port}[[:space:]]" || true
-        return 1
-    fi
-
-    echo "SUCCESS: Port $port is now available"
-    return 0
+    echo
+    echo "Refusing to continue while port $port is occupied."
+    return 1
 }
 # === END MEGAHASHPOOL FREE STRATUM PORT ===
 
@@ -363,14 +331,66 @@ sqsyiimp_refresh_stratum_wrappers() {
         cat > "$tmp" <<'WRAPPER'
 #!/usr/bin/env bash
 
-source /etc/yiimpool.conf
-source "$STORAGE_ROOT/yiimp/.yiimp.conf"
+if [[ -r /etc/yiimpool.conf ]]; then
+    source /etc/yiimpool.conf
+fi
+
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
+if [[ -r /etc/default/sqsyiimp ]]; then
+    source /etc/default/sqsyiimp
+fi
+
+if [[ -r "$STORAGE_ROOT/yiimp/.yiimp.conf" ]]; then
+    source "$STORAGE_ROOT/yiimp/.yiimp.conf"
+fi
+
+STRATUM_USER="${YIIMP_USER:-$STORAGE_USER}"
 
 STRATUM_DIR="$STORAGE_ROOT/yiimp/site/stratum"
 CONFIG_DIR="$STRATUM_DIR/config"
 
 SESSION="__SQSYIIMP_SESSION__"
 CONFIG="__SQSYIIMP_CONFIG__"
+
+
+stratum_as_runtime() {
+    if [[ "$(id -un)" == "$STRATUM_USER" ]]; then
+        "$@"
+    else
+        sudo -u "$STRATUM_USER" -H "$@"
+    fi
+}
+
+
+stratum_ss_listeners() {
+    local normal=""
+    local privileged=""
+
+    #
+    # A process owner can normally see its own PID information.
+    #
+    normal="$(ss -lntpH 2>/dev/null || true)"
+
+    #
+    # When the caller has passwordless/cached sudo available,
+    # prefer the privileged snapshot because it can also see
+    # legacy Stratum processes owned by another user.
+    #
+    if command -v sudo >/dev/null 2>&1 &&
+       sudo -n true >/dev/null 2>&1
+    then
+        privileged="$(sudo -n ss -lntpH 2>/dev/null || true)"
+    fi
+
+    if [[ -n "$privileged" ]]; then
+        printf '%s\n' "$privileged"
+    else
+        printf '%s\n' "$normal"
+    fi
+}
 
 
 stratum_runtime_binary() {
@@ -418,7 +438,7 @@ stratum_tcp_port() {
 
 
 stratum_screen_running() {
-    screen -ls 2>/dev/null |
+    stratum_as_runtime screen -ls 2>/dev/null |
         grep -Eq "[[:space:]][0-9]+\.${SESSION}[[:space:]]"
 }
 
@@ -436,7 +456,11 @@ stratum_real_process_pids() {
 
     [[ -n "$binary" ]] || return 1
 
-    expected_exe="$STRATUM_DIR/$binary"
+    expected_exe="$(
+        readlink -f "$STRATUM_DIR/$binary" 2>/dev/null ||
+        printf '%s\n' "$STRATUM_DIR/$binary"
+    )"
+
     config_stem="${CONFIG%.conf}"
 
     for proc in /proc/[0-9]*; do
@@ -445,20 +469,39 @@ stratum_real_process_pids() {
 
         exe="$(readlink "$proc/exe" 2>/dev/null || true)"
 
-        # A running executable may appear as:
-        #
-        #   /path/stratum-kp (deleted)
-        #
-        # after replacing/recompiling its on-disk binary.
+        if [[ -z "$exe" ]] &&
+           command -v sudo >/dev/null 2>&1
+        then
+            exe="$(
+                sudo -n readlink "$proc/exe" 2>/dev/null ||
+                true
+            )"
+        fi
+
         exe="${exe% (deleted)}"
 
-        [[ "$exe" == "$expected_exe" ]] || continue
-
         cmd="$(
-            tr '\0' ' ' < "$proc/cmdline" 2>/dev/null || true
+            tr '\0' ' ' < "$proc/cmdline" 2>/dev/null ||
+            true
         )"
 
+        if [[ -z "$cmd" ]]; then
+            cmd="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+        fi
+
+        [[ -n "$cmd" ]] || continue
         [[ "$cmd" == *"$config_stem"* ]] || continue
+
+        if [[ -n "$exe" ]]; then
+            [[ "$exe" == "$expected_exe" ]] || continue
+        else
+            #
+            # Cross-user /proc restrictions can hide exe.
+            # In that case require both the expected binary path
+            # and the expected configuration in the command line.
+            #
+            [[ "$cmd" == *"$STRATUM_DIR/$binary"* ]] || continue
+        fi
 
         printf '%s\n' "$pid"
     done
@@ -495,7 +538,7 @@ stratum_port_listening() {
 
         [[ -n "$pid" ]] || continue
 
-        if ss -lntpH 2>/dev/null |
+        if stratum_ss_listeners |
            awk \
              -v port="$port" \
              -v needle="pid=$pid," '
@@ -570,7 +613,7 @@ stratum_start() {
         echo "WARNING: stale/unhealthy ${SESSION^^} screen detected."
         echo "Removing stale screen..."
 
-        screen -S "$SESSION" -X quit 2>/dev/null || true
+        stratum_as_runtime screen -S "$SESSION" -X quit 2>/dev/null || true
 
         for i in $(seq 1 10); do
 
@@ -592,7 +635,7 @@ stratum_start() {
 
     echo "Starting ${SESSION^^}..."
 
-    screen -dmS "$SESSION" \
+    stratum_as_runtime screen -dmS "$SESSION" \
         bash "$STRATUM_DIR/run.sh" "$CONFIG"
 
     #
@@ -650,7 +693,7 @@ stratum_stop() {
 
     echo "Stopping ${SESSION^^}..."
 
-    screen -S "$SESSION" -X quit 2>/dev/null || true
+    stratum_as_runtime screen -S "$SESSION" -X quit 2>/dev/null || true
 
     for i in $(seq 1 10); do
 
@@ -682,20 +725,117 @@ stratum_restart() {
 }
 
 
+stratum_mining_snapshot() {
+    local tmp=""
+    local line=""
+    local coinds=""
+    local jobs=""
+    local clients=""
+    local state="UNKNOWN"
+
+    if ! stratum_screen_running; then
+        echo "UNKNOWN|||"
+        return 0
+    fi
+
+    tmp="$(stratum_as_runtime mktemp 2>/dev/null || true)"
+
+    if [[ -z "$tmp" ]]; then
+        echo "UNKNOWN|||"
+        return 0
+    fi
+
+    if ! stratum_as_runtime screen -S "$SESSION" \
+        -X hardcopy -h "$tmp" \
+        >/dev/null 2>&1
+    then
+        stratum_as_runtime rm -f "$tmp" >/dev/null 2>&1 || true
+        echo "UNKNOWN|||"
+        return 0
+    fi
+
+    line="$(
+        stratum_as_runtime grep -E \
+          'STATS[[:space:]]+coinds=[0-9]+[[:space:]]+jobs=[0-9]+[[:space:]]+clients=[0-9]+' \
+          "$tmp" 2>/dev/null |
+        tail -n1
+    )"
+
+    stratum_as_runtime rm -f "$tmp" >/dev/null 2>&1 || true
+
+    if [[ -z "$line" ]]; then
+        echo "UNKNOWN|||"
+        return 0
+    fi
+
+    coinds="$(
+        sed -nE \
+          's/.*coinds=([0-9]+).*/\1/p' \
+          <<<"$line"
+    )"
+
+    jobs="$(
+        sed -nE \
+          's/.*jobs=([0-9]+).*/\1/p' \
+          <<<"$line"
+    )"
+
+    clients="$(
+        sed -nE \
+          's/.*clients=([0-9]+).*/\1/p' \
+          <<<"$line"
+    )"
+
+    coinds="${coinds:-0}"
+    jobs="${jobs:-0}"
+    clients="${clients:-0}"
+
+    if (( coinds > 0 && jobs > 0 && clients > 0 )); then
+        state="ACTIVE"
+    elif (( coinds > 0 && jobs > 0 )); then
+        state="READY_NO_MINERS"
+    else
+        state="INACTIVE"
+    fi
+
+    echo "${state}|${coinds}|${jobs}|${clients}"
+}
+
+
 stratum_status() {
     local binary=""
     local port=""
+    local pid=""
+    local screen_ok=0
+    local process_ok=0
+    local port_ok=0
+    local service_state="STOPPED"
+
+    local mining_data=""
+    local mining_state=""
+    local mining_coinds=""
+    local mining_jobs=""
+    local mining_clients=""
+
+    local -a pids=()
 
     binary="$(stratum_runtime_binary)"
     port="$(stratum_tcp_port)"
+
+    #
+    # One process snapshot for the complete status calculation.
+    #
+    mapfile -t pids < <(stratum_real_process_pids)
 
     echo "===== ${SESSION^^} STATUS ====="
 
     if stratum_screen_running; then
 
+        screen_ok=1
+
         echo "Screen  : RUNNING"
 
-        screen -ls |
+        stratum_as_runtime screen -ls |
             grep -E "[[:space:]][0-9]+\.${SESSION}[[:space:]]" ||
             true
 
@@ -703,10 +843,15 @@ stratum_status() {
         echo "Screen  : STOPPED"
     fi
 
-    if stratum_real_process_running; then
+    if (( ${#pids[@]} > 0 )); then
+
+        process_ok=1
 
         echo "Process : RUNNING"
-        stratum_real_process_lines
+
+        for pid in "${pids[@]}"; do
+            ps -p "$pid" -o pid=,args= 2>/dev/null || true
+        done
 
     else
         echo "Process : STOPPED"
@@ -715,11 +860,39 @@ stratum_status() {
     echo "Config  : $CONFIG"
     echo "Binary  : ${binary:-NOT CONFIGURED}"
 
+    #
+    # Port must belong to one of the PID values captured above.
+    #
+    if [[ -n "$port" ]] && (( process_ok )); then
+
+        for pid in "${pids[@]}"; do
+
+            if stratum_ss_listeners |
+               awk \
+                 -v port="$port" \
+                 -v needle="pid=$pid," '
+                    $4 ~ (":" port "$") &&
+                    index($0, needle) {
+                        found=1
+                    }
+
+                    END {
+                        exit(found ? 0 : 1)
+                    }
+                 '
+            then
+                port_ok=1
+                break
+            fi
+
+        done
+    fi
+
     if [[ -z "$port" ]]; then
 
         echo "Port    : NOT CONFIGURED"
 
-    elif stratum_port_listening; then
+    elif (( port_ok )); then
 
         echo "Port    : $port LISTENING"
 
@@ -727,21 +900,55 @@ stratum_status() {
         echo "Port    : $port NOT LISTENING"
     fi
 
-    if stratum_healthy; then
+    #
+    # SERVICE state:
+    # only local Stratum process/screen/port.
+    #
+    if (( screen_ok && process_ok && port_ok )); then
+        service_state="HEALTHY"
 
-        echo "Health  : HEALTHY"
-
-    elif stratum_screen_running ||
-         stratum_real_process_running
-    then
-
-        echo "Health  : DEGRADED"
+    elif (( screen_ok || process_ok )); then
+        service_state="DEGRADED"
 
     else
-        echo "Health  : STOPPED"
+        service_state="STOPPED"
+    fi
+
+    echo "Service : $service_state"
+
+    #
+    # MINING state:
+    # based on latest Stratum STATS line.
+    #
+    mining_data="$(stratum_mining_snapshot)"
+
+    IFS='|' read -r \
+        mining_state \
+        mining_coinds \
+        mining_jobs \
+        mining_clients \
+        <<<"$mining_data"
+
+    echo "Mining  : ${mining_state:-UNKNOWN}"
+
+    if [[ -n "$mining_coinds" ]]; then
+        echo "Coinds  : $mining_coinds"
+    fi
+
+    if [[ -n "$mining_jobs" ]]; then
+        echo "Jobs    : $mining_jobs"
+    fi
+
+    if [[ -n "$mining_clients" ]]; then
+        echo "Clients : $mining_clients"
+    fi
+
+    if [[ "$service_state" == "HEALTHY" ]] &&
+       [[ "$mining_state" == "INACTIVE" ]]
+    then
+        echo "Warning : Stratum is running but mining is not ready"
     fi
 }
-
 
 case "${1:-}" in
 
@@ -1552,50 +1759,100 @@ create_service_launcher() {
     sudo tee "$service_file" >/dev/null <<EOF_SERVICE
 #!/usr/bin/env bash
 
-source /etc/yiimpool.conf
-source "\$STORAGE_ROOT/yiimp/.yiimp.conf"
+if [[ -r /etc/yiimpool.conf ]]; then
+    source /etc/yiimpool.conf
+fi
+
+STORAGE_USER="\${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="\${STORAGE_GROUP:-\${STORAGE_USER}}"
+STORAGE_ROOT="\${STORAGE_ROOT:-/home/\${STORAGE_USER}}"
+
+if [[ -r /etc/default/sqsyiimp ]]; then
+    source /etc/default/sqsyiimp
+fi
+
+if [[ -r "\$STORAGE_ROOT/yiimp/.yiimp.conf" ]]; then
+    source "\$STORAGE_ROOT/yiimp/.yiimp.conf"
+fi
+
+STRATUM_USER="\${YIIMP_USER:-\$STORAGE_USER}"
 
 STRATUM_DIR="\$STORAGE_ROOT/yiimp/site/stratum"
 RUNNER="\$STRATUM_DIR/runner.sh"
+
 SESSION="$coinsymbollower"
 CONFIG="$coinsymbollower.$SELECTED_ALGO.conf"
+
+
+stratum_as_runtime() {
+    if [[ "\$(id -un)" == "\$STRATUM_USER" ]]; then
+        "\$@"
+    else
+        sudo -u "\$STRATUM_USER" -H "\$@"
+    fi
+}
+
+
+screen_running() {
+    stratum_as_runtime screen -ls 2>/dev/null |
+        grep -Eq "[.]\${SESSION}[[:space:]]"
+}
+
 
 start_service() {
     if ! command -v screen >/dev/null 2>&1; then
         echo "ERROR: screen is required to start Stratum services" >&2
         return 127
     fi
-    if screen -ls 2>/dev/null | grep -Eq "[.]\${SESSION}[[:space:]]"; then
+
+    if screen_running; then
         echo "Stratum session already running: \$SESSION"
         return 0
     fi
-    screen -dmS "\$SESSION" "\$RUNNER" "\$CONFIG"
+
+    stratum_as_runtime \
+        screen -dmS "\$SESSION" \
+        "\$RUNNER" "\$CONFIG"
 }
 
+
 stop_service() {
-    screen -S "\$SESSION" -X quit 2>/dev/null || true
+    if ! screen_running; then
+        echo "Stratum session is not running: \$SESSION"
+        return 0
+    fi
+
+    stratum_as_runtime \
+        screen -S "\$SESSION" -X quit \
+        2>/dev/null || true
 }
+
 
 case "\${1:-}" in
     start)
         start_service
         ;;
+
     stop)
         stop_service
         ;;
+
     restart)
         stop_service
         sleep 1
         start_service
         ;;
+
     status)
-        if screen -ls 2>/dev/null | grep -Eq "[.]\${SESSION}[[:space:]]"; then
+        if screen_running; then
             echo "RUNNING: \$SESSION"
             exit 0
         fi
+
         echo "STOPPED: \$SESSION"
         exit 1
         ;;
+
     *)
         echo "Usage: \$0 {start|stop|restart|status}"
         exit 1
@@ -1603,30 +1860,101 @@ case "\${1:-}" in
 esac
 EOF_SERVICE
 
+    sudo chown root:root "$service_file"
     sudo chmod 755 "$service_file"
+
     sudo cp "$service_file" "$primary_command"
+    sudo chown root:root "$primary_command"
     sudo chmod 755 "$primary_command"
-    sudo ln -sfn "$primary_command" "$compatibility_command"
+
+    sudo ln -sfn \
+        "$primary_command" \
+        "$compatibility_command"
 
     SERVICE_COMMAND="$primary_command"
 }
 
+
 register_autostart() {
     local marker="stratum.$coinsymbollower start"
-    local tmp
+    local compatibility_marker="sqs-stratum-$coinsymbollower start"
+    local runtime_user="${STORAGE_USER:-crypto-data}"
+    local current_user=""
+    local log_file=""
+    local YIIMP_USER=""
 
     if ! command -v crontab >/dev/null 2>&1; then
-        print_warning "crontab is not available; Stratum autostart was not registered"
+        print_warning \
+            "crontab is not available; Stratum autostart was not registered"
         return 0
     fi
 
-    tmp=$(mktemp)
-    crontab -l 2>/dev/null | grep -vF "$marker" | grep -vF "sqs-stratum-$coinsymbollower start" >"$tmp" || true
-    printf '@reboot sleep 30 && %s start >> /var/log/stratum-%s-boot.log 2>&1\n' \
-        "$SERVICE_COMMAND" "$coinsymbollower" >>"$tmp"
-    crontab "$tmp"
-    rm -f "$tmp"
+    if [[ -r /etc/default/sqsyiimp ]]; then
+        source /etc/default/sqsyiimp
+        runtime_user="${YIIMP_USER:-$runtime_user}"
+    fi
+
+    if ! id "$runtime_user" >/dev/null 2>&1; then
+        print_warning "Runtime user does not exist: $runtime_user"
+        return 1
+    fi
+
+    current_user="$(id -un)"
+
+    log_file="$STORAGE_ROOT/yiimp/site/log/stratum-${coinsymbollower}-boot.log"
+
+    #
+    # Remove legacy autostart for this coin from the current
+    # administrator account during migration.
+    #
+    if [[ "$current_user" != "$runtime_user" ]]; then
+        {
+            crontab -l 2>/dev/null |
+                grep -vF "$marker" |
+                grep -vF "$compatibility_marker" ||
+                true
+        } | crontab -
+    fi
+
+    #
+    # Register exactly one entry under the runtime user.
+    #
+    if [[ "$current_user" == "$runtime_user" ]]; then
+
+        {
+            crontab -l 2>/dev/null |
+                grep -vF "$marker" |
+                grep -vF "$compatibility_marker" ||
+                true
+
+            printf \
+                '@reboot sleep 30 && %s start >> %s 2>&1\n' \
+                "$SERVICE_COMMAND" \
+                "$log_file"
+
+        } | crontab -
+
+    else
+
+        {
+            sudo -u "$runtime_user" crontab -l 2>/dev/null |
+                grep -vF "$marker" |
+                grep -vF "$compatibility_marker" ||
+                true
+
+            printf \
+                '@reboot sleep 30 && %s start >> %s 2>&1\n' \
+                "$SERVICE_COMMAND" \
+                "$log_file"
+
+        } | sudo -u "$runtime_user" crontab -
+
+    fi
+
+    print_info \
+        "Stratum autostart registered for user: $runtime_user"
 }
+
 
 save_createcoin_result() {
     sudo tee "$STORAGE_ROOT/daemon_builder/.addport.cnf" >/dev/null <<EOF_RESULT
@@ -1653,7 +1981,7 @@ show_summary() {
     print_info "Stop    : $SERVICE_COMMAND stop"
     print_info "Restart : $SERVICE_COMMAND restart"
     print_info "Status  : $SERVICE_COMMAND status"
-    print_info "Console : screen -r $coinsymbollower"
+    print_info "Console : sudo -u ${STORAGE_USER:-crypto-data} -H screen -r $coinsymbollower"
     print_divider
 }
 
@@ -1790,22 +2118,39 @@ EOF_HELP
     sqsyiimp_refresh_stratum_wrappers "$coinsymbollower"
 
     sudo ufw allow "$coinport" >/dev/null 2>&1 || print_warning "Unable to add UFW rule for port $coinport"
-    register_autostart
 
-    # === RELEASE STRATUM PORT BEFORE START ===
     #
-    # coinport is the final selected port. current_port only
-    # exists locally inside choose_existing_port().
+    # Stop only the Stratum service managed for this coin.
+    # Never kill arbitrary processes merely because they own
+    # the selected TCP port.
     #
-    if ! free_stratum_port "${coinport}"; then
-        echo "ERROR: Cannot start Stratum: port ${coinport} could not be released"
+    print_info "Stopping any existing managed Stratum service..."
+
+    if ! "$SERVICE_COMMAND" stop; then
+        print_warning "Existing Stratum could not be stopped cleanly"
+        print_warning "Automatic start aborted to prevent a duplicate process"
         return 1 2>/dev/null || exit 1
     fi
-    # === END RELEASE STRATUM PORT ===
+
+    #
+    # After the managed service has stopped, the selected port
+    # must really be free. If another process owns it, abort.
+    #
+    if ! free_stratum_port "${coinport}"; then
+        echo "ERROR: Cannot start Stratum because port ${coinport} is occupied"
+        return 1 2>/dev/null || exit 1
+    fi
 
     print_info "Starting the new Stratum service..."
-    if "$SERVICE_COMMAND" restart; then
+
+    if "$SERVICE_COMMAND" start; then
         print_success "Stratum service started"
+
+        if register_autostart; then
+            print_success "Stratum autostart registered"
+        else
+            print_warning "Stratum started, but autostart could not be registered"
+        fi
     else
         print_warning "Stratum service could not be started automatically; the config and service command were still created"
     fi

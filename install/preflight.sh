@@ -87,12 +87,13 @@ if [ "$ARCHITECTURE" != "x86_64" ]; then
     fi
 fi
 
-# Set STORAGE_USER and STORAGE_ROOT to default values if not already set
-if [ -z "$STORAGE_USER" ]; then
-    STORAGE_USER=${DEFAULT_STORAGE_USER:-"crypto-data"}
-fi
-if [ -z "$STORAGE_ROOT" ]; then
-    STORAGE_ROOT=${DEFAULT_STORAGE_ROOT:-"/home/$STORAGE_USER"}
-fi
+# Set storage/service defaults if not already configured.
+STORAGE_USER="${STORAGE_USER:-${DEFAULT_STORAGE_USER:-crypto-data}}"
+STORAGE_GROUP="${STORAGE_GROUP:-${DEFAULT_STORAGE_GROUP:-${STORAGE_USER}}}"
+STORAGE_ROOT="${STORAGE_ROOT:-${DEFAULT_STORAGE_ROOT:-/home/${STORAGE_USER}}}"
+
+export STORAGE_USER
+export STORAGE_GROUP
+export STORAGE_ROOT
 
 print_success "Pre-flight checks passed"

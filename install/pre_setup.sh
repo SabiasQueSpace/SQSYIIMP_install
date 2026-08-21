@@ -113,13 +113,14 @@ if [ -z "${DISTRO:-}" ]; then
     fi
 fi
 
-# Fallback: set STORAGE_USER and STORAGE_ROOT if not already set by preflight.sh
-if [ -z "${STORAGE_USER:-}" ]; then
-    STORAGE_USER="crypto-data"
-fi
-if [ -z "${STORAGE_ROOT:-}" ]; then
-    STORAGE_ROOT="/home/${STORAGE_USER}"
-fi
+# Fallback when preflight.sh has not initialized storage variables.
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
+export STORAGE_USER
+export STORAGE_GROUP
+export STORAGE_ROOT
 
 # Set PRIVATE_IP from the default network interface
 if [ -z "${PRIVATE_IP:-}" ]; then

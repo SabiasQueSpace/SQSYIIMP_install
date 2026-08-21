@@ -109,6 +109,7 @@ StratumUserDBPassword=$(openssl rand -base64 29 | tr -d "=+/")
 # Save stratum configuration to a randomly named conf file, then copy to .newconf.conf
 # so that subsequent scripts (add_stratum_db.sh, setsid_stratum_server.sh) can source it.
 echo 'STORAGE_USER='"${STORAGE_USER}"'
+STORAGE_GROUP='"${STORAGE_GROUP:-${STORAGE_USER}}"'
 STORAGE_ROOT='"${STORAGE_ROOT}"'
 
 DomainName='"${DomainName}"'

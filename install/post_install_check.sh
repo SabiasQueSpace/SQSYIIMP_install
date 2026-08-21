@@ -139,15 +139,28 @@ check_http_endpoint() {
 
 check_screen_session() {
     local name=$1
-    if screen -ls 2>/dev/null | grep -qE "[[:space:].]+\.${name}[[:space:]]"; then
-        record_success "Screen session '${name}' is running"
+    local screen_list=""
+
+    if id "$STORAGE_USER" >/dev/null 2>&1; then
+        if [[ "$(id -un)" == "$STORAGE_USER" ]]; then
+            screen_list="$(screen -ls 2>/dev/null || true)"
+        else
+            screen_list="$(sudo -u "$STORAGE_USER" -H screen -ls 2>/dev/null || true)"
+        fi
+    fi
+
+    if grep -qE "[[:space:].]+\.${name}[[:space:]]" <<< "$screen_list"; then
+        record_success "Screen session '${name}' is running as ${STORAGE_USER}"
     else
-        record_warning "Screen session '${name}' not running (may start after reboot via screens start)"
+        record_warning "Screen session '${name}' not running as ${STORAGE_USER}"
     fi
 }
 
-# Load installer configs if present
-STORAGE_ROOT=/home/crypto-data
+# Load installer configs if present.
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
 VERSION=""
 DISTRO=""
 
@@ -160,7 +173,10 @@ if [ -r /etc/yiimpoolversion.conf ]; then
     source /etc/yiimpoolversion.conf
 fi
 
-STORAGE_ROOT=${STORAGE_ROOT:-/home/crypto-data}
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
 DOMAIN=${DomainName:-${PRIMARY_HOSTNAME:-localhost}}
 proto=http
 InstallSSL=no

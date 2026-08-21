@@ -187,7 +187,7 @@ select_yiimp_repository()
 
 persist_yiimp_repository()
 {
-    local conf="${1:-${STORAGE_ROOT:-/home/crypto-data}/yiimp/.yiimp.conf}"
+    local conf="${1:-${STORAGE_ROOT:-/home/${STORAGE_USER:-crypto-data}}/yiimp/.yiimp.conf}"
 
     if [[ ! -f "$conf" ]]; then
         echo "WARNING: YiiMP config not found yet:"
@@ -224,7 +224,7 @@ persist_yiimp_repository()
 
 load_yiimp_repository()
 {
-    local conf="${1:-${STORAGE_ROOT:-/home/crypto-data}/yiimp/.yiimp.conf}"
+    local conf="${1:-${STORAGE_ROOT:-/home/${STORAGE_USER:-crypto-data}}/yiimp/.yiimp.conf}"
 
     if [[ -r "$conf" ]]; then
         # shellcheck disable=SC1090

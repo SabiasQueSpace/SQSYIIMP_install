@@ -1061,6 +1061,58 @@ find_open_port() {
     done
 }
 
+
+ensure_sha256d_template() {
+    local source="$CONFIG_DIR/sha.conf"
+    local target="$CONFIG_DIR/sha256d.conf"
+    local runtime_user="${STORAGE_USER:-crypto-data}"
+    local runtime_group="${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}"
+
+    #
+    # sha and sha256d are intentionally separate algorithms.
+    #
+    # Do not overwrite an administrator-provided sha256d
+    # template. Only bootstrap it when sha.conf exists and
+    # sha256d.conf is missing.
+    #
+    if [[ -f "$target" ]]; then
+        return 0
+    fi
+
+    if [[ ! -f "$source" ]]; then
+        return 0
+    fi
+
+    print_info \
+        "Creating independent SHA256d Stratum template: $target"
+
+    sudo cp -a \
+        "$source" \
+        "$target" ||
+        fatal "Unable to create SHA256d template"
+
+    sudo sed -i -E \
+        's/^[[:space:]]*algo[[:space:]]*=.*/algo = sha256d/' \
+        "$target" ||
+        fatal "Unable to configure SHA256d algorithm"
+
+    if ! sudo grep -qEi \
+        '^[[:space:]]*algo[[:space:]]*=[[:space:]]*sha256d[[:space:]]*$' \
+        "$target"
+    then
+        sudo rm -f "$target"
+        fatal "SHA256d template validation failed"
+    fi
+
+    sudo chown \
+        "$runtime_user:$runtime_group" \
+        "$target"
+
+    print_success \
+        "SHA256d algorithm template available"
+}
+
+
 list_algorithms() {
     find "$CONFIG_DIR" \
         -mindepth 1 -maxdepth 1 -type f \
@@ -1991,6 +2043,7 @@ main() {
     local requested_binary=""
 
     ensure_layout
+    ensure_sha256d_template
 
     case "$mode" in
 

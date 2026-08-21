@@ -6,13 +6,10 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 
-User=crypto-data
-Group=crypto-data
+User=__STORAGE_USER__
+Group=__STORAGE_GROUP__
 
-Environment=HOME=/home/crypto-data
-Environment=YIIMP_USER=crypto-data
-Environment=YIIMP_HOME=/home/crypto-data
-Environment=YIIMP_SITE=/home/crypto-data/yiimp/site
+EnvironmentFile=-/etc/default/sqsyiimp
 
 ExecStart=/usr/local/bin/yiimp-screens start
 ExecStop=/usr/local/bin/yiimp-screens stop

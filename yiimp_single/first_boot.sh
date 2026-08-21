@@ -14,10 +14,14 @@ hide_output yiimp checkup
 
 # Prevents error when trying to log in to admin panel the first time...
 
-sudo touch $STORAGE_ROOT/yiimp/site/log/debug.log
-sudo chmod 755 $STORAGE_ROOT/yiimp/site/log
-sudo chmod 644 $STORAGE_ROOT/yiimp/site/log/debug.log
-sudo chown -R www-data:www-data $STORAGE_ROOT/yiimp/site/log
+sudo install -d     -o "${STORAGE_USER:-crypto-data}"     -g www-data     -m 2775     "$STORAGE_ROOT/yiimp/site/log"
+
+sudo touch "$STORAGE_ROOT/yiimp/site/log/debug.log"
+
+sudo chown -R     "${STORAGE_USER:-crypto-data}:www-data"     "$STORAGE_ROOT/yiimp/site/log"
+
+sudo find "$STORAGE_ROOT/yiimp/site/log" -type d -exec chmod 2775 {} +
+sudo find "$STORAGE_ROOT/yiimp/site/log" -type f -exec chmod 664 {} +
 
 # Delete me no longer needed after it runs the first time
 

@@ -20,7 +20,7 @@ print_status "Installing cron screens to crontab"
 if [[ ("$CoinPort" == "no") ]]; then
     (
         crontab -l 2>/dev/null
-        echo "@reboot sleep 20 && /home/crypto-data/yiimp/starts/stratum.start.sh"
+        echo "@reboot sleep 20 && ${STORAGE_ROOT}/yiimp/starts/stratum.start.sh"
     ) | crontab -
 fi
 
@@ -36,7 +36,7 @@ fi
     crontab -l 2>/dev/null
     echo "@reboot source /etc/yiimpool.conf"
 ) | crontab -
-sudo cp -r first_boot.sh /home/crypto-data/yiimp
+sudo cp -r first_boot.sh "$STORAGE_ROOT/yiimp/"
 
 print_success "Crontab system configuration complete"
 
@@ -60,8 +60,11 @@ fi
 #                                                                              #
 #                                                                              #
 ################################################################################
-sudo chmod 777 $STORAGE_ROOT/yiimp/site/log/.
-sudo chmod 777 $STORAGE_ROOT/yiimp/site/log/debug.log
+sudo install -d     -o "${STORAGE_USER:-crypto-data}"     -g www-data     -m 2775     "$STORAGE_ROOT/yiimp/site/log"
+
+sudo touch "$STORAGE_ROOT/yiimp/site/log/debug.log"
+sudo chown "${STORAGE_USER:-crypto-data}:www-data"     "$STORAGE_ROOT/yiimp/site/log/debug.log"
+sudo chmod 664 "$STORAGE_ROOT/yiimp/site/log/debug.log"
 LOG_DIR=$STORAGE_ROOT/yiimp/site/log
 CRONS=$STORAGE_ROOT/yiimp/site/crons
 # ============================================================
@@ -76,7 +79,7 @@ if [[ -x /usr/local/bin/yiimp-screens ]]; then
     /usr/local/bin/yiimp-screens start
 
     if [[ $? -eq 0 ]]; then
-        echo "SUCCESS: YiiMP background services started as crypto-data"
+        echo "SUCCESS: YiiMP background services started as ${STORAGE_USER:-crypto-data}"
     else
         echo "ERROR: YiiMP background service manager returned an error"
         exit 1
@@ -285,15 +288,15 @@ sudo rm -r $STORAGE_ROOT/yiimp/yiimp_setup
 
 # Fixing exbitron that make white screen and update main.php
 cd $HOME/sqsyiimp/yiimp_single/yiimp_confs
-sudo rm -r /home/crypto-data/yiimp/site/web/yaamp/ui/main.php
-sudo rm -r /home/crypto-data/yiimp/site/web/yaamp/modules/admin/coin_form.php
+sudo rm -r "$STORAGE_ROOT/yiimp/site/web/yaamp/ui/main.php"
+sudo rm -r "$STORAGE_ROOT/yiimp/site/web/yaamp/modules/admin/coin_form.php"
 
-sudo cp -r main.php /home/crypto-data/yiimp/site/web/yaamp/ui
-sudo cp -r coin_form.php /home/crypto-data/yiimp/site/web/yaamp/modules/admin
+sudo cp -r main.php "$STORAGE_ROOT/yiimp/site/web/yaamp/ui"
+sudo cp -r coin_form.php "$STORAGE_ROOT/yiimp/site/web/yaamp/modules/admin"
 
 print_success "Server cleanup and configuration completed successfully"
 
 cd $HOME/sqsyiimp/yiimp_single
-sudo chmod 755 $STORAGE_ROOT/yiimp/site/log
-sudo chmod 644 $STORAGE_ROOT/yiimp/site/log/debug.log
-sudo chown -R www-data:www-data $STORAGE_ROOT/yiimp/site/log
+sudo chown -R "${STORAGE_USER:-crypto-data}:www-data" "$STORAGE_ROOT/yiimp/site/log"
+sudo find "$STORAGE_ROOT/yiimp/site/log" -type d -exec chmod 2775 {} +
+sudo find "$STORAGE_ROOT/yiimp/site/log" -type f -exec chmod 664 {} +

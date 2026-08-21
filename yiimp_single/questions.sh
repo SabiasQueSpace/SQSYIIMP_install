@@ -410,6 +410,7 @@ case $response in
         # Save configuration to .yiimp.conf
         if [[ ("$wireguard" == "true") ]]; then
             echo "STORAGE_USER=${STORAGE_USER}
+                  STORAGE_GROUP=${STORAGE_GROUP:-${STORAGE_USER}}
                   STORAGE_ROOT=${STORAGE_ROOT}
                   PRIMARY_HOSTNAME=${DomainName}
                   UsingDomain=${UsingDomain}
@@ -435,6 +436,7 @@ case $response in
                   YiiMPRepo='https://github.com/Kudaraidee/yiimp.git'" | sudo -E tee "$STORAGE_ROOT/yiimp/.yiimp.conf" >/dev/null 2>&1
         else
             echo "STORAGE_USER=${STORAGE_USER}
+                  STORAGE_GROUP=${STORAGE_GROUP:-${STORAGE_USER}}
                   STORAGE_ROOT=${STORAGE_ROOT}
                   PRIMARY_HOSTNAME=${DomainName}
                   UsingDomain=${UsingDomain}

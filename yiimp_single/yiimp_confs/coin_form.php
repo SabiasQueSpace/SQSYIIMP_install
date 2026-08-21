@@ -508,11 +508,11 @@ if ($coin->id) {
 	echo "alertnotify=echo %s | mail -s \"{$coin->name} alert!\" ".YAAMP_ADMIN_EMAIL."\n";
 	if (empty($coin->dedicatedport))
         {
-            echo "blocknotify=/home/crypto-data/yiimp/site/stratum/blocknotify ".YAAMP_STRATUM_URL.":$port {$coin->id} %s\n";
+            echo "blocknotify=".dirname(YIIMP_HTDOCS)."/stratum/blocknotify ".YAAMP_STRATUM_URL.":$port {$coin->id} %s\n";
         }
         else
         {
-            echo "blocknotify=/home/crypto-data/yiimp/site/stratum/blocknotify ".YAAMP_STRATUM_URL.":$dedport {$coin->id} %s\n";
+            echo "blocknotify=".dirname(YIIMP_HTDOCS)."/stratum/blocknotify ".YAAMP_STRATUM_URL.":$dedport {$coin->id} %s\n";
         }
     echo " \n";
     echo CHtml::closetag("pre");

@@ -481,7 +481,7 @@ stratum_real_process_pids() {
         exe="${exe% (deleted)}"
 
         cmd="$(
-            tr '\0' ' ' < "$proc/cmdline" 2>/dev/null ||
+            tr '\0' ' ' 2>/dev/null < "$proc/cmdline" ||
             true
         )"
 

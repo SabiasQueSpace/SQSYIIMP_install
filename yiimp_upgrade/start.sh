@@ -9,6 +9,10 @@
 
 source /etc/functions.sh # load our functions
 source /etc/yiimpool.conf
+
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
 # Ensure Python reads/writes files in UTF-8. If the machine
 # triggers some other locale in Python, like ASCII encoding,
 # Python may not be able to read/write files. This is also
@@ -30,7 +34,8 @@ export NCURSES_NO_UTF8_ACS=1
 # Create the temporary installation directory if it doesn't already exist.
 if [ ! -d "$STORAGE_ROOT/yiimp/yiimp_setup" ]; then
     print_status "Creating temporary YiiMP setup directory..."
-    sudo mkdir -p "$STORAGE_ROOT/yiimp/yiimp_setup"
+
+    sudo install -d         -o "$STORAGE_USER"         -g "$STORAGE_GROUP"         -m 775         "$STORAGE_ROOT/yiimp/yiimp_setup"
 fi
 
 # Start the upgrade menu.

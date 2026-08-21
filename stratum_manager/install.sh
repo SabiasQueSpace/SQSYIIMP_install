@@ -11,7 +11,9 @@ if [ -f /etc/yiimpool.conf ]; then
     source /etc/yiimpool.conf
 fi
 
-STORAGE_ROOT="${STORAGE_ROOT:-/home/crypto-data}"
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
 STRATUM_DIR="$STORAGE_ROOT/yiimp/site/stratum"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANAGER_SOURCE="$SCRIPT_DIR/addport.sh"
@@ -34,8 +36,7 @@ sudo chmod 755 /usr/bin/addport
 sudo ln -sfn /usr/bin/addport /usr/bin/sqs-stratum-port
 
 if [ -d "$STORAGE_ROOT/daemon_builder" ]; then
-    sudo cp "$MANAGER_SOURCE" "$STORAGE_ROOT/daemon_builder/addport.sh"
-    sudo chmod 755 "$STORAGE_ROOT/daemon_builder/addport.sh"
+    sudo install         -o "$STORAGE_USER"         -g "$STORAGE_GROUP"         -m 755         "$MANAGER_SOURCE"         "$STORAGE_ROOT/daemon_builder/addport.sh"
 fi
 
 echo "Stratum tools installed successfully."

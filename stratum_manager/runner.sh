@@ -14,7 +14,10 @@ if [ -n "${STORAGE_ROOT:-}" ] && [ -f "$STORAGE_ROOT/yiimp/.yiimp.conf" ]; then
     source "$STORAGE_ROOT/yiimp/.yiimp.conf"
 fi
 
-STRATUM_DIR="${STRATUM_RUNTIME_DIR:-${SQS_STRATUM_DIR:-${STORAGE_ROOT:-/home/crypto-data}/yiimp/site/stratum}}"
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
+STRATUM_DIR="${STRATUM_RUNTIME_DIR:-${SQS_STRATUM_DIR:-${STORAGE_ROOT}/yiimp/site/stratum}}"
 CONFIG_DIR="$STRATUM_DIR/config"
 DEFAULT_BINARY="stratum"
 RESTART_DELAY="${STRATUM_RESTART_DELAY:-${SQS_STRATUM_RESTART_DELAY:-2}}"

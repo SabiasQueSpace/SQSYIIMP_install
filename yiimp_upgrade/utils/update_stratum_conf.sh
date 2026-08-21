@@ -22,6 +22,16 @@
 
 source /etc/functions.sh
 source /etc/yiimpool.conf
+# Load canonical SQSYIIMP storage configuration.
+if [[ -r /etc/yiimpool.conf ]]; then
+    # shellcheck disable=SC1091
+    source /etc/yiimpool.conf
+fi
+
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
 source "$STORAGE_ROOT/yiimp/.yiimp.conf"
 source "$HOME/sqsyiimp/yiimp_single/.wireguard.install.cnf"
 
@@ -108,7 +118,7 @@ sudo sed -i "s/password = patofpaq/password = $StratumUserDBPassword/g" *.conf
 log_message "$GREEN" "  DB password applied"
 
 # ── Permissions ───────────────────────────────────────────────────────────────
-sudo chown -R www-data:www-data "$STRATUM_CONF"
+sudo chown -R "$STORAGE_USER:$STORAGE_GROUP" "$STRATUM_CONF"
 sudo chmod -R 750 "$STRATUM_CONF"
 
 log_message "$GREEN" "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

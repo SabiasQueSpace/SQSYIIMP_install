@@ -15,9 +15,19 @@ RED='\033[0;31m'
 BLUE='\033[1;34m'
 NC='\033[0m'
 
-STRATUM_DIR="/home/crypto-data/yiimp/site/stratum"
-STRATUM_CONF="/home/crypto-data/yiimp/site/stratum/config"
-SITE_DIR="/home/crypto-data/yiimp/site"
+# SQSYIIMP storage/service configuration.
+if [[ -r /etc/yiimpool.conf ]]; then
+    # shellcheck disable=SC1091
+    source /etc/yiimpool.conf
+fi
+
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
+STRATUM_DIR="${STORAGE_ROOT}/yiimp/site/stratum"
+STRATUM_CONF="${STRATUM_DIR}/config"
+SITE_DIR="${STORAGE_ROOT}/yiimp/site"
 BACKUP_DIR="$HOME/yiimpool_backups"
 
 # Query the public SQSYIIMP Git repository and return the latest tag.
@@ -258,7 +268,7 @@ upgrade_stratum() {
         return 1
     fi
 
-    sudo chown www-data:www-data "$STRATUM_DIR/stratum"
+    sudo chown "$STORAGE_USER:$STORAGE_GROUP" "$STRATUM_DIR/stratum"
     sudo chmod 750 "$STRATUM_DIR/stratum"
 
     sudo mkdir -p "$STRATUM_CONF"
@@ -267,7 +277,7 @@ upgrade_stratum() {
     LATEST_BACKUP=$(ls -td "${STRATUM_CONF}_backup_"* | head -1)
     if [ -d "$LATEST_BACKUP" ]; then
         sudo cp -r "$LATEST_BACKUP/"* "$STRATUM_CONF/"
-        sudo chown -R www-data:www-data "$STRATUM_CONF"
+        sudo chown -R "$STORAGE_USER:$STORAGE_GROUP" "$STRATUM_CONF"
         sudo chmod -R 750 "$STRATUM_CONF"
         log_message "$GREEN" "Stratum configuration restored from $LATEST_BACKUP"
     else
@@ -339,8 +349,8 @@ sync_installer_runtime() {
         return 1
     fi
 
-    if id crypto-data >/dev/null 2>&1; then
-        sudo chown -R crypto-data:crypto-data "$daemonbuilder_target"
+    if id "$STORAGE_USER" >/dev/null 2>&1; then
+        sudo chown -R "$STORAGE_USER:$STORAGE_GROUP" "$daemonbuilder_target"
     fi
 
     # Canonical command wrapper.

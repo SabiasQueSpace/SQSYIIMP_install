@@ -10,7 +10,14 @@
 
 source /etc/functions.sh
 source /etc/yiimpool.conf
-source $STORAGE_ROOT/yiimp/.yiimp.conf
+
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
+source "$STORAGE_ROOT/yiimp/.yiimp.conf"
+
+STRATUM_DIR="$STORAGE_ROOT/yiimp/site/stratum"
 
 YIIMP_DIR="$STORAGE_ROOT/yiimp/yiimp_setup/yiimp"
 if [[ -d "$YIIMP_DIR" ]]; then
@@ -62,14 +69,34 @@ fi
 echo -e "$GREEN stratum built successfully! $NC"
 
 echo -e "$GREEN Installing stratum... $NC"
-if ! sudo mv stratum "$STORAGE_ROOT/yiimp/site/stratum"; then
+
+# Install to a temporary path first and atomically replace the executable.
+if ! sudo install \
+    -o "$STORAGE_USER" \
+    -g "$STORAGE_GROUP" \
+    -m 755 \
+    stratum \
+    "$STRATUM_DIR/stratum.new"
+then
+    echo -e "$RED Failed to stage stratum binary. Exiting... $NC"
+    exit 1
+fi
+
+if ! sudo mv -f \
+    "$STRATUM_DIR/stratum.new" \
+    "$STRATUM_DIR/stratum"
+then
     echo -e "$RED Failed to install stratum. Exiting... $NC"
     exit 1
 fi
 
+sudo chown \
+    "$STORAGE_USER:$STORAGE_GROUP" \
+    "$STRATUM_DIR/stratum"
+
 echo -e "$GREEN Copying yaamp.php to the site directory... $NC"
 cd $YIIMP_DIR/web/yaamp/core/functions/
-cp -r yaamp.php $STORAGE_ROOT/yiimp/site/web/yaamp/core/functions
+sudo install     -o "$STORAGE_USER"     -g www-data     -m 664     yaamp.php     "$STORAGE_ROOT/yiimp/site/web/yaamp/core/functions/yaamp.php"
 
 echo -e "$GREEN Stratum upgrade completed successfully! $NC"
 cd

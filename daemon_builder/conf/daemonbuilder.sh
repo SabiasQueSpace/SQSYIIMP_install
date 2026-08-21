@@ -3,12 +3,25 @@
 # SQSYIIMP - SabiasQue.Space
 ##################################################################
 source /etc/functions.sh
-source /etc/yiimpool.conf
-source /etc/yiimpoolversion.conf
-source $STORAGE_ROOT/yiimp/.yiimp.conf
 
-path_stratum=$STORAGE_ROOT/yiimp/site/stratum
-absolutepath=/home/crypto-data
+if [[ -r /etc/yiimpool.conf ]]; then
+    source /etc/yiimpool.conf
+fi
+
+if [[ -r /etc/yiimpoolversion.conf ]]; then
+    source /etc/yiimpoolversion.conf
+fi
+
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
+if [[ -r "$STORAGE_ROOT/yiimp/.yiimp.conf" ]]; then
+    source "$STORAGE_ROOT/yiimp/.yiimp.conf"
+fi
+
+path_stratum="$STORAGE_ROOT/yiimp/site/stratum"
+absolutepath="$STORAGE_ROOT"
 
 installtoserver=daemon_builder
 daemonname=daemonbuilder

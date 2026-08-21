@@ -54,13 +54,54 @@ print_info "Long pauses are normal while apt downloads packages or MariaDB impor
 print_info "If apt waits indefinitely, unattended-upgrades may hold the lock—wait, or stop that service and retry."
 
 # Create the temporary installation directory if it doesn't already exist.
-if [ ! -d $STORAGE_ROOT/yiimp/yiimp_setup ]; then
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+
+if [ ! -d "$STORAGE_ROOT/yiimp/yiimp_setup" ]; then
     print_status "Creating storage directories and installer log under $STORAGE_ROOT/yiimp"
-    sudo mkdir -p $STORAGE_ROOT/{wallets,yiimp/{yiimp_setup/log,site/{web,stratum,configuration,crons,log},starts}}
-    sudo touch $STORAGE_ROOT/yiimp/yiimp_setup/log/installer.log
+
+    sudo install -d \
+        -o "$STORAGE_USER" \
+        -g "$STORAGE_GROUP" \
+        -m 755 \
+        "$STORAGE_ROOT"
+
+    # Wallet/blockchain storage belongs exclusively to the service account.
+    sudo install -d \
+        -o "$STORAGE_USER" \
+        -g "$STORAGE_GROUP" \
+        -m 750 \
+        "$STORAGE_ROOT/wallets"
+
+    YIIMP_DIRS=(
+        "$STORAGE_ROOT/yiimp"
+        "$STORAGE_ROOT/yiimp/yiimp_setup"
+        "$STORAGE_ROOT/yiimp/yiimp_setup/log"
+        "$STORAGE_ROOT/yiimp/site"
+        "$STORAGE_ROOT/yiimp/site/web"
+        "$STORAGE_ROOT/yiimp/site/stratum"
+        "$STORAGE_ROOT/yiimp/site/configuration"
+        "$STORAGE_ROOT/yiimp/site/crons"
+        "$STORAGE_ROOT/yiimp/site/log"
+        "$STORAGE_ROOT/yiimp/starts"
+    )
+
+    for dir in "${YIIMP_DIRS[@]}"; do
+        sudo install -d \
+            -o "$STORAGE_USER" \
+            -g "$STORAGE_GROUP" \
+            -m 775 \
+            "$dir"
+    done
+
+    sudo touch "$STORAGE_ROOT/yiimp/yiimp_setup/log/installer.log"
+    sudo chown \
+        "$STORAGE_USER:$STORAGE_GROUP" \
+        "$STORAGE_ROOT/yiimp/yiimp_setup/log/installer.log"
 fi
 
-sudo chmod 755 /home/crypto-data/
+sudo chmod 755 "$STORAGE_ROOT"
 
 print_header "WireGuard and network mode"
 source menu.sh

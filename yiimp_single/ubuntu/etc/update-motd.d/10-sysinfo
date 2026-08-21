@@ -68,8 +68,10 @@ echo
 
 # Pool status
 colored_message "SQSYIIMP Status:"
-daemon='/home/crypto-data/wallets'
-site='/home/crypto-data/yiimp/site'
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+daemon="${STORAGE_ROOT}/wallets"
+site="${STORAGE_ROOT}/yiimp/site"
 echo
 print_header "Main:" "$(check_process_status 'main')" \
     "Wallets:" "${YELLOW}$daemon${RESET}"

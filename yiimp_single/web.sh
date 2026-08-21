@@ -9,6 +9,8 @@
 source /etc/functions.sh
 source /etc/yiimpool.conf
 source $STORAGE_ROOT/yiimp/.yiimp.conf
+STORAGE_USER="${STORAGE_USER:-crypto-data}"
+STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
 source $HOME/sqsyiimp/yiimp_single/.wireguard.install.cnf
 
 set -eu -o pipefail
@@ -79,17 +81,58 @@ source yiimp_confs/blocks.sh
 print_header "Permission Setup"
 print_status "Setting folder permissions..."
 whoami=$(whoami)
-sudo usermod -aG www-data $whoami
-sudo usermod -a -G www-data $whoami
-sudo usermod -a -G crypto-data $whoami
-sudo usermod -a -G crypto-data www-data
+
+# Administrative user may manage the web application.
+sudo usermod -aG www-data "$whoami"
 
 print_status "Setting directory permissions..."
-sudo find $STORAGE_ROOT/yiimp/site/ -type d -exec chmod 775 {} +
-sudo find $STORAGE_ROOT/yiimp/site/ -type f -exec chmod 664 {} +
 
-sudo chgrp www-data $STORAGE_ROOT -R
-sudo chmod g+w $STORAGE_ROOT -R
+# ------------------------------------------------------------
+# Base YiiMP tree
+# ------------------------------------------------------------
+sudo chown "$STORAGE_USER:$STORAGE_GROUP" "$STORAGE_ROOT/yiimp/site"
+sudo chmod 755 "$STORAGE_ROOT/yiimp/site"
+
+# ------------------------------------------------------------
+# Web application
+# PHP/nginx need access here.
+# ------------------------------------------------------------
+sudo chown -R "$STORAGE_USER:www-data" "$STORAGE_ROOT/yiimp/site/web"
+sudo find "$STORAGE_ROOT/yiimp/site/web" -type d -exec chmod 775 {} +
+sudo find "$STORAGE_ROOT/yiimp/site/web" -type f -exec chmod 664 {} +
+
+# ------------------------------------------------------------
+# YiiMP configuration
+# www-data may read configuration, but must not write it.
+# ------------------------------------------------------------
+sudo chown -R "$STORAGE_USER:www-data" "$STORAGE_ROOT/yiimp/site/configuration"
+sudo find "$STORAGE_ROOT/yiimp/site/configuration" -type d -exec chmod 750 {} +
+sudo find "$STORAGE_ROOT/yiimp/site/configuration" -type f -exec chmod 640 {} +
+
+# ------------------------------------------------------------
+# Stratum and cron code
+# Only the service account owns these.
+# Preserve executable bits already assigned by their installers.
+# ------------------------------------------------------------
+sudo chown -R "$STORAGE_USER:$STORAGE_GROUP" "$STORAGE_ROOT/yiimp/site/stratum"
+sudo chown -R "$STORAGE_USER:$STORAGE_GROUP" "$STORAGE_ROOT/yiimp/site/crons"
+
+# ------------------------------------------------------------
+# Shared runtime logs
+# setgid keeps newly-created logs in group www-data.
+# ------------------------------------------------------------
+sudo chown -R "$STORAGE_USER:www-data" "$STORAGE_ROOT/yiimp/site/log"
+sudo find "$STORAGE_ROOT/yiimp/site/log" -type d -exec chmod 2775 {} +
+sudo find "$STORAGE_ROOT/yiimp/site/log" -type f -exec chmod 664 {} +
+
+# ------------------------------------------------------------
+# Wallet/blockchain data
+# Never expose this tree to www-data.
+# ------------------------------------------------------------
+sudo chown -R "$STORAGE_USER:$STORAGE_GROUP" "$STORAGE_ROOT/wallets"
+sudo chmod 750 "$STORAGE_ROOT/wallets"
+
+sudo chmod 755 "$STORAGE_ROOT"
 
 print_header "YiiMP Customization"
 print_status "Applying SQSYIIMP customizations..."
@@ -103,7 +146,7 @@ sudo ln -s ${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php /etc/yiimp/
 
 print_status "Updating configuration paths..."
 sudo sed -i "s|/etc/yiimp/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/index.php
-sudo sed -i "s|serverconfig.php|/home/crypto-data/yiimp/site/configuration/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/runconsole.php
+sudo sed -i "s|serverconfig.php|${STORAGE_ROOT}/yiimp/site/configuration/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/runconsole.php
 sudo sed -i "s|serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/run.php
 sudo sed -i "s|/etc/yiimp/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/yaamp/yiic.php
 sudo sed -i "s|/etc/yiimp/serverconfig.php|/etc/yiimp/serverconfig.php|g" $STORAGE_ROOT/yiimp/site/web/yaamp/modules/thread/CronjobController.php
@@ -125,7 +168,7 @@ fi
 
 print_header "Keys Configuration"
 print_status "Setting up unified keys configuration..."
-sudo ln -s /home/crypto-data/yiimp/site/configuration/keys.php /etc/yiimp/keys.php
+sudo ln -sf "${STORAGE_ROOT}/yiimp/site/configuration/keys.php" /etc/yiimp/keys.php
 
 print_status "Updating exchange configuration paths..."
 sudo find $STORAGE_ROOT/yiimp/site/web/yaamp/core/exchange/ -type f -name "*.php" -exec sed -i 's|require_once.*keys.php.*|if (!defined('\''EXCH_POLONIEX_KEY'\'')) {\n    require_once('\''/etc/yiimp/keys.php'\'');\n}|g' {} +

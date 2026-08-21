@@ -10,16 +10,16 @@
 . "$STORAGE_ROOT/yiimp/.prescreens.start.conf"
 
 # Commands to start screen sessions
-main="sudo -u crypto-data -H screen -dmS main ${CRONS}/main.sh"
-loop2="sudo -u crypto-data -H screen -dmS loop2 ${CRONS}/loop2.sh"
-blocks="sudo -u crypto-data -H screen -dmS blocks ${CRONS}/blocks.sh"
-debug="sudo -u crypto-data -H screen -dmS debug tail -F ${LOG_DIR}/debug.log"
+main="sudo -u ${STORAGE_USER:-crypto-data} -H screen -dmS main ${CRONS}/main.sh"
+loop2="sudo -u ${STORAGE_USER:-crypto-data} -H screen -dmS loop2 ${CRONS}/loop2.sh"
+blocks="sudo -u ${STORAGE_USER:-crypto-data} -H screen -dmS blocks ${CRONS}/blocks.sh"
+debug="sudo -u ${STORAGE_USER:-crypto-data} -H screen -dmS debug tail -F ${LOG_DIR}/debug.log"
 
 # Commands to stop screen sessions
-mainstop='sudo -u crypto-data -H screen -X -S main quit'
-loop2stop='sudo -u crypto-data -H screen -X -S loop2 quit'
-blocksstop='sudo -u crypto-data -H screen -X -S blocks quit'
-debugstop='sudo -u crypto-data -H screen -X -S debug quit'
+mainstop="sudo -u ${STORAGE_USER:-crypto-data} -H screen -X -S main quit"
+loop2stop="sudo -u ${STORAGE_USER:-crypto-data} -H screen -X -S loop2 quit"
+blocksstop="sudo -u ${STORAGE_USER:-crypto-data} -H screen -X -S blocks quit"
+debugstop="sudo -u ${STORAGE_USER:-crypto-data} -H screen -X -S debug quit"
 
 # Function to start/stop/restart services
 startstop_service() {

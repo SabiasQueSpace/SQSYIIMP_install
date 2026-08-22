@@ -26,24 +26,66 @@ fi
 YIIMP_USER="${YIIMP_USER:-crypto-data}"
 
 
+_sqsyiimp_screen_has_session()
+{
+    local user="$1"
+    local selector="$2"
+    local listing
+
+    [[ -n "$selector" ]] || return 1
+
+    if [[ "$user" == "$(id -un)" ]]; then
+        listing="$(/usr/bin/screen -ls 2>/dev/null || true)"
+    else
+        listing="$(
+            sudo -u "$user" -H /usr/bin/screen -ls 2>/dev/null ||
+            true
+        )"
+    fi
+
+    awk -v selector="$selector" '
+        /^[[:space:]]*[0-9]+\./ {
+            token=$1
+            name=token
+            sub(/^[0-9]+\./, "", name)
+
+            if (token == selector || name == selector) {
+                found=1
+            }
+        }
+
+        END {
+            exit(found ? 0 : 1)
+        }
+    ' <<< "$listing"
+}
+
+
 screen()
 {
+    local current_user
+    local selector=""
     local arg
-    local managed=false
+    local expect_selector=false
+    local saw_attach=false
+    local saw_S=false
+    local saw_X=false
+
+    current_user="$(id -un)"
 
     #
-    # Compatibility improvement:
-    # screen -ls shows both the user's normal screens
-    # and the SQSYIIMP managed screens.
+    # screen -ls:
+    # show both the interactive user's sessions and
+    # SQSYIIMP sessions owned by YIIMP_USER.
     #
     if [[ "${1:-}" == "-ls" && $# -eq 1 ]]; then
 
         echo
-        echo "=== Screens: $(id -un) ==="
+        echo "=== Screens: ${current_user} ==="
         /usr/bin/screen -ls || true
 
         if id "${YIIMP_USER}" >/dev/null 2>&1 &&
-           [[ "$(id -un)" != "${YIIMP_USER}" ]]; then
+           [[ "$current_user" != "${YIIMP_USER}" ]]; then
 
             echo
             echo "=== SQSYIIMP Screens: ${YIIMP_USER} ==="
@@ -53,32 +95,89 @@ screen()
         return
     fi
 
+    #
+    # When already logged in as the service user,
+    # no compatibility routing is necessary.
+    #
+    if [[ "$current_user" == "${YIIMP_USER}" ]]; then
+        /usr/bin/screen "$@"
+        return
+    fi
 
     #
-    # Determine whether command refers to a SQSYIIMP
-    # managed screen.
+    # Detect a session selector from common interactive
+    # Screen commands:
+    #
+    #   screen -r fuec
+    #   screen -r 13160.fuec
+    #   screen -d -r hrc
+    #   screen -x hrc
+    #   screen -S hrc -X quit
     #
     for arg in "$@"; do
 
-        if [[ "$arg" =~ ^([0-9]+\.)?(main|loop2|blocks|debug)$ ]]; then
-            managed=true
-            break
+        if [[ "$expect_selector" == "true" ]]; then
+            selector="$arg"
+            expect_selector=false
+            continue
         fi
 
+        case "$arg" in
+
+            -r|-R|-RR|-x)
+                saw_attach=true
+                expect_selector=true
+                ;;
+
+            -S)
+                saw_S=true
+                expect_selector=true
+                ;;
+
+            -X)
+                saw_X=true
+                ;;
+
+        esac
     done
 
+    #
+    # Only route commands that refer to an existing session.
+    #
+    # Prefer a session owned by the current user if names
+    # happen to collide.
+    #
+    if [[ -n "$selector" ]] &&
+       {
+           [[ "$saw_attach" == "true" ]] ||
+           {
+               [[ "$saw_S" == "true" ]] &&
+               [[ "$saw_X" == "true" ]]
+           }
+       }
+    then
 
-    if [[ "$managed" == "true" ]]; then
-
-        if [[ "$(id -un)" == "${YIIMP_USER}" ]]; then
+        if _sqsyiimp_screen_has_session \
+            "$current_user" "$selector"
+        then
             /usr/bin/screen "$@"
-        else
-            sudo -u "${YIIMP_USER}" -H /usr/bin/screen "$@"
+            return
         fi
 
-    else
+        if id "${YIIMP_USER}" >/dev/null 2>&1 &&
+           _sqsyiimp_screen_has_session \
+               "${YIIMP_USER}" "$selector"
+        then
 
-        /usr/bin/screen "$@"
+            sudo -u "${YIIMP_USER}" -H \
+                /usr/bin/screen "$@"
 
+            return
+        fi
     fi
+
+    #
+    # Ordinary non-SQSYIIMP Screen command.
+    #
+    /usr/bin/screen "$@"
 }

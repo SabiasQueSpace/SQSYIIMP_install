@@ -152,6 +152,12 @@ SSHEOF
         sudo useradd             --create-home             --home-dir "$STORAGE_ROOT"             --gid "$STORAGE_GROUP"             --shell /usr/sbin/nologin             "$STORAGE_USER"
     fi
 
+    # Give the SQSYIIMP administrator supplementary access
+    # to the dedicated storage/service group.
+    if id -u "${yiimpadmin}" >/dev/null 2>&1; then
+        sudo usermod -aG "$STORAGE_GROUP" "${yiimpadmin}"
+    fi
+
     sudo install -d         -o "$STORAGE_USER"         -g "$STORAGE_GROUP"         -m 755         "$STORAGE_ROOT"
 
     # Save the global options in /etc/yiimpool.conf so that standalone
@@ -269,6 +275,12 @@ case $response in
 
     if ! id -u "$STORAGE_USER" >/dev/null 2>&1; then
         sudo useradd             --create-home             --home-dir "$STORAGE_ROOT"             --gid "$STORAGE_GROUP"             --shell /usr/sbin/nologin             "$STORAGE_USER"
+    fi
+
+    # Give the SQSYIIMP administrator supplementary access
+    # to the dedicated storage/service group.
+    if id -u "${yiimpadmin}" >/dev/null 2>&1; then
+        sudo usermod -aG "$STORAGE_GROUP" "${yiimpadmin}"
     fi
 
     sudo install -d         -o "$STORAGE_USER"         -g "$STORAGE_GROUP"         -m 755         "$STORAGE_ROOT"

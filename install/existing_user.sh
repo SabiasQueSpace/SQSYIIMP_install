@@ -47,6 +47,12 @@ if ! id -u "$STORAGE_USER" >/dev/null 2>&1; then
         "$STORAGE_USER"
 fi
 
+# Give the SQSYIIMP administrator supplementary access
+# to the dedicated storage/service group.
+if id -u "${whoami}" >/dev/null 2>&1; then
+    sudo usermod -aG "$STORAGE_GROUP" "${whoami}"
+fi
+
 sudo install -d \
     -o "$STORAGE_USER" \
     -g "$STORAGE_GROUP" \

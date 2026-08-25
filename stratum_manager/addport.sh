@@ -1448,6 +1448,192 @@ remove_simple_key() {
     rm -f "$tmpfile"
 }
 
+get_simple_key() {
+    local file="$1"
+    local section="$2"
+    local key="$3"
+
+    [[ -f "$file" ]] || return 1
+
+    awk -v target_section="$section" -v target_key="$key" '
+        function section_name(line, value) {
+            value = line
+            sub(/^[[:space:]]*\[/, "", value)
+            sub(/\][[:space:]]*$/, "", value)
+            return value
+        }
+        /^[[:space:]]*\[[^]]+\][[:space:]]*$/ {
+            current = section_name($0)
+            in_target = (tolower(current) == tolower(target_section))
+            next
+        }
+        in_target && $0 ~ "^[[:space:]]*" target_key "[[:space:]]*=" {
+            value = $0
+            sub(/^[^=]*=[[:space:]]*/, "", value)
+            sub(/[[:space:]]*[;#].*$/, "", value)
+            sub(/[[:space:]]*$/, "", value)
+            print value
+            exit
+        }
+    ' "$file"
+}
+
+is_positive_number() {
+    local value="$1"
+
+    [[ "$value" =~ ^([0-9]+([.][0-9]*)?|[.][0-9]+)$ ]] || return 1
+    awk -v value="$value" 'BEGIN { exit !(value > 0) }'
+}
+
+number_le() {
+    local left="$1"
+    local right="$2"
+
+    awk -v left="$left" -v right="$right" 'BEGIN { exit !(left <= right) }'
+}
+
+read_number_with_default() {
+    local prompt="$1"
+    local default_value="$2"
+    local value=""
+
+    while true; do
+        read -r -e -p "$prompt [$default_value]: " value
+        value="${value:-$default_value}"
+
+        if is_positive_number "$value"; then
+            printf '%s\n' "$value"
+            return 0
+        fi
+
+        print_warning "Enter a positive number, for example: $default_value" >&2
+    done
+}
+
+is_kawpow_runtime() {
+    [[ "${SELECTED_ALGO:-}" == "kawpow" ]] || return 1
+
+    case "${SELECTED_STRATUM_BINARY:-}" in
+        stratum-kp|stratum-kawpow|stratum-kawpow-*)
+            return 0
+            ;;
+    esac
+
+    return 1
+}
+
+configure_kawpow_marketplaces() {
+    local coin_config="$CONFIG_DIR/$coinsymbollower.$SELECTED_ALGO.conf"
+    local answer=""
+    local existing_initial=""
+    local existing_min=""
+    local existing_max=""
+
+    nicehash_enabled="y"
+    nicehash_initial="1"
+    nicehash_diff_min="0.5"
+    nicehash_diff_max="8192"
+    mrr_enabled="y"
+    mrr_initial="0.03125"
+    mrr_diff_min="0.005"
+    mrr_diff_max="8192"
+
+    if [[ -f "$coin_config" ]]; then
+        existing_initial="$(get_simple_key "$coin_config" "STRATUM" "nicehash" || true)"
+        existing_min="$(get_simple_key "$coin_config" "STRATUM" "nicehash_diff_min" || true)"
+        existing_max="$(get_simple_key "$coin_config" "STRATUM" "nicehash_diff_max" || true)"
+
+        if is_positive_number "$existing_initial" &&
+            is_positive_number "$existing_min" &&
+            is_positive_number "$existing_max" &&
+            number_le "$existing_min" "$existing_initial" &&
+            number_le "$existing_initial" "$existing_max"
+        then
+            nicehash_initial="$existing_initial"
+            nicehash_diff_min="$existing_min"
+            nicehash_diff_max="$existing_max"
+        fi
+
+        existing_initial="$(get_simple_key "$coin_config" "STRATUM" "mrr" || true)"
+        existing_min="$(get_simple_key "$coin_config" "STRATUM" "mrr_diff_min" || true)"
+        existing_max="$(get_simple_key "$coin_config" "STRATUM" "mrr_diff_max" || true)"
+
+        if is_positive_number "$existing_initial" &&
+            is_positive_number "$existing_min" &&
+            is_positive_number "$existing_max" &&
+            number_le "$existing_min" "$existing_initial" &&
+            number_le "$existing_initial" "$existing_max"
+        then
+            mrr_initial="$existing_initial"
+            mrr_diff_min="$existing_min"
+            mrr_diff_max="$existing_max"
+        fi
+    fi
+
+    if [[ ! -t 0 ]]; then
+        print_info "Non-interactive KAWPOW mode: using recommended NiceHash and MRR defaults"
+        return 0
+    fi
+
+    echo
+    print_info "KAWPOW marketplace compatibility"
+    print_info "Press Enter to accept each recommended/current value."
+
+    read -r -e -p "Enable NiceHash compatibility? (Y/n): " answer
+    case "$answer" in
+        n|N|no|NO) nicehash_enabled="n" ;;
+        *)
+            nicehash_initial="$(read_number_with_default "NiceHash initial difficulty" "$nicehash_initial")"
+            nicehash_diff_min="$(read_number_with_default "NiceHash minimum difficulty" "$nicehash_diff_min")"
+            nicehash_diff_max="$(read_number_with_default "NiceHash maximum difficulty" "$nicehash_diff_max")"
+
+            number_le "$nicehash_diff_min" "$nicehash_initial" ||
+                fatal "NiceHash minimum difficulty cannot exceed its initial difficulty"
+            number_le "$nicehash_initial" "$nicehash_diff_max" ||
+                fatal "NiceHash initial difficulty cannot exceed its maximum difficulty"
+            ;;
+    esac
+
+    read -r -e -p "Enable MiningRigRentals compatibility? (Y/n): " answer
+    case "$answer" in
+        n|N|no|NO) mrr_enabled="n" ;;
+        *)
+            mrr_initial="$(read_number_with_default "MRR initial difficulty" "$mrr_initial")"
+            mrr_diff_min="$(read_number_with_default "MRR minimum difficulty" "$mrr_diff_min")"
+            mrr_diff_max="$(read_number_with_default "MRR maximum difficulty" "$mrr_diff_max")"
+
+            number_le "$mrr_diff_min" "$mrr_initial" ||
+                fatal "MRR minimum difficulty cannot exceed its initial difficulty"
+            number_le "$mrr_initial" "$mrr_diff_max" ||
+                fatal "MRR initial difficulty cannot exceed its maximum difficulty"
+            ;;
+    esac
+}
+
+apply_kawpow_marketplaces() {
+    local file="$1"
+
+    if [[ "$nicehash_enabled" == "y" ]]; then
+        upsert_simple_key "$file" "STRATUM" "nicehash" "$nicehash_initial"
+        upsert_simple_key "$file" "STRATUM" "nicehash_diff_min" "$nicehash_diff_min"
+        upsert_simple_key "$file" "STRATUM" "nicehash_diff_max" "$nicehash_diff_max"
+    else
+        remove_simple_key "$file" "STRATUM" "nicehash"
+        remove_simple_key "$file" "STRATUM" "nicehash_diff_min"
+        remove_simple_key "$file" "STRATUM" "nicehash_diff_max"
+    fi
+
+    if [[ "$mrr_enabled" == "y" ]]; then
+        upsert_simple_key "$file" "STRATUM" "mrr" "$mrr_initial"
+        upsert_simple_key "$file" "STRATUM" "mrr_diff_min" "$mrr_diff_min"
+        upsert_simple_key "$file" "STRATUM" "mrr_diff_max" "$mrr_diff_max"
+    else
+        remove_simple_key "$file" "STRATUM" "mrr"
+        remove_simple_key "$file" "STRATUM" "mrr_diff_min"
+        remove_simple_key "$file" "STRATUM" "mrr_diff_max"
+    fi
+}
+
 ensure_wallet_rule() {
     local file="$1"
     local rule="$2"
@@ -1791,7 +1977,9 @@ create_coin_config() {
         upsert_simple_key "$coin_config" "STRATUM" "coinbaseextra" "$pool_coinbase_tag"
     fi
 
-    if [[ "${nicehash:-n}" =~ ^([yY]|yes|YES)$ ]]; then
+    if is_kawpow_runtime; then
+        apply_kawpow_marketplaces "$coin_config"
+    elif [[ "${nicehash:-n}" =~ ^([yY]|yes|YES)$ ]]; then
         upsert_simple_key "$coin_config" "STRATUM" "nicehash" "$nicevalue"
     else
         remove_simple_key "$coin_config" "STRATUM" "nicehash"
@@ -2028,6 +2216,18 @@ show_summary() {
     print_info "Config         : $CONFIG_PATH"
     print_info "Service command: $SERVICE_COMMAND"
     print_info "Screen session : $coinsymbollower"
+    if is_kawpow_runtime; then
+        if [[ "${nicehash_enabled:-n}" == "y" ]]; then
+            print_info "NiceHash       : enabled (initial=$nicehash_initial, min=$nicehash_diff_min, max=$nicehash_diff_max)"
+        else
+            print_info "NiceHash       : disabled"
+        fi
+        if [[ "${mrr_enabled:-n}" == "y" ]]; then
+            print_info "MRR            : enabled (initial=$mrr_initial, min=$mrr_diff_min, max=$mrr_diff_max)"
+        else
+            print_info "MRR            : disabled"
+        fi
+    fi
     echo
     print_info "Start   : $SERVICE_COMMAND start"
     print_info "Stop    : $SERVICE_COMMAND stop"
@@ -2145,7 +2345,9 @@ EOF_HELP
     echo
 
     nicehash="n"
-    if [ -t 0 ]; then
+    if is_kawpow_runtime; then
+        configure_kawpow_marketplaces
+    elif [ -t 0 ]; then
         read -r -e -p "Would you like to set a minimum NiceHash value? (y/n) : " nicehash
         if [[ "$nicehash" =~ ^([yY]|yes|YES)$ ]]; then
             read -r -e -p "Please enter a whole value, example 750000: " nicevalue

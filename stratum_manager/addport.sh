@@ -1510,19 +1510,7 @@ read_number_with_default() {
     done
 }
 
-is_kawpow_runtime() {
-    [[ "${SELECTED_ALGO:-}" == "kawpow" ]] || return 1
-
-    case "${SELECTED_STRATUM_BINARY:-}" in
-        stratum-kp|stratum-kawpow|stratum-kawpow-*)
-            return 0
-            ;;
-    esac
-
-    return 1
-}
-
-configure_kawpow_marketplaces() {
+configure_marketplace_profiles() {
     local coin_config="$CONFIG_DIR/$coinsymbollower.$SELECTED_ALGO.conf"
     local answer=""
     local existing_initial=""
@@ -1571,12 +1559,13 @@ configure_kawpow_marketplaces() {
     fi
 
     if [[ ! -t 0 ]]; then
-        print_info "Non-interactive KAWPOW mode: using recommended NiceHash and MRR defaults"
+        print_info "Non-interactive mode: using current/recommended NiceHash and MRR profiles"
         return 0
     fi
 
     echo
-    print_info "KAWPOW marketplace compatibility"
+    print_info "NiceHash and MiningRigRentals compatibility"
+    print_info "These profiles apply to the selected Stratum: $SELECTED_STRATUM_BINARY"
     print_info "Press Enter to accept each recommended/current value."
 
     read -r -e -p "Enable NiceHash compatibility? (Y/n): " answer
@@ -1610,7 +1599,7 @@ configure_kawpow_marketplaces() {
     esac
 }
 
-apply_kawpow_marketplaces() {
+apply_marketplace_profiles() {
     local file="$1"
 
     if [[ "$nicehash_enabled" == "y" ]]; then
@@ -1977,13 +1966,7 @@ create_coin_config() {
         upsert_simple_key "$coin_config" "STRATUM" "coinbaseextra" "$pool_coinbase_tag"
     fi
 
-    if is_kawpow_runtime; then
-        apply_kawpow_marketplaces "$coin_config"
-    elif [[ "${nicehash:-n}" =~ ^([yY]|yes|YES)$ ]]; then
-        upsert_simple_key "$coin_config" "STRATUM" "nicehash" "$nicevalue"
-    else
-        remove_simple_key "$coin_config" "STRATUM" "nicehash"
-    fi
+    apply_marketplace_profiles "$coin_config"
 
     ensure_wallet_rule "$coin_config" "include" "$coinsymbol"
     ensure_wallet_rule "$base_config" "exclude" "$coinsymbol"
@@ -2216,17 +2199,15 @@ show_summary() {
     print_info "Config         : $CONFIG_PATH"
     print_info "Service command: $SERVICE_COMMAND"
     print_info "Screen session : $coinsymbollower"
-    if is_kawpow_runtime; then
-        if [[ "${nicehash_enabled:-n}" == "y" ]]; then
-            print_info "NiceHash       : enabled (initial=$nicehash_initial, min=$nicehash_diff_min, max=$nicehash_diff_max)"
-        else
-            print_info "NiceHash       : disabled"
-        fi
-        if [[ "${mrr_enabled:-n}" == "y" ]]; then
-            print_info "MRR            : enabled (initial=$mrr_initial, min=$mrr_diff_min, max=$mrr_diff_max)"
-        else
-            print_info "MRR            : disabled"
-        fi
+    if [[ "${nicehash_enabled:-n}" == "y" ]]; then
+        print_info "NiceHash       : enabled (initial=$nicehash_initial, min=$nicehash_diff_min, max=$nicehash_diff_max)"
+    else
+        print_info "NiceHash       : disabled"
+    fi
+    if [[ "${mrr_enabled:-n}" == "y" ]]; then
+        print_info "MRR            : enabled (initial=$mrr_initial, min=$mrr_diff_min, max=$mrr_diff_max)"
+    else
+        print_info "MRR            : disabled"
     fi
     echo
     print_info "Start   : $SERVICE_COMMAND start"
@@ -2344,16 +2325,7 @@ EOF_HELP
     print_success "Selected Stratum : $SELECTED_STRATUM_BINARY"
     echo
 
-    nicehash="n"
-    if is_kawpow_runtime; then
-        configure_kawpow_marketplaces
-    elif [ -t 0 ]; then
-        read -r -e -p "Would you like to set a minimum NiceHash value? (y/n) : " nicehash
-        if [[ "$nicehash" =~ ^([yY]|yes|YES)$ ]]; then
-            read -r -e -p "Please enter a whole value, example 750000: " nicevalue
-            [[ "$nicevalue" =~ ^[0-9]+$ ]] || fatal "NiceHash value must be a positive whole number"
-        fi
-    fi
+    configure_marketplace_profiles
 
     coinport=""
     create_coin_config

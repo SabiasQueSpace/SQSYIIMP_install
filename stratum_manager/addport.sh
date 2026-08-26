@@ -446,11 +446,19 @@ stratum_screen_running() {
 stratum_real_process_pids() {
     local binary=""
     local expected_exe=""
-    local config_stem=""
+    local config_path=""
+    local config_alias=""
+    local config_relative=""
+    local config_relative_alias=""
+    local runtime_uid=""
     local proc=""
     local pid=""
+    local owner_uid=""
     local exe=""
+    local exe_name=""
     local cmd=""
+    local arg=""
+    local config_matches=""
 
     binary="$(stratum_runtime_binary)"
 
@@ -461,11 +469,19 @@ stratum_real_process_pids() {
         printf '%s\n' "$STRATUM_DIR/$binary"
     )"
 
-    config_stem="${CONFIG%.conf}"
+    config_path="$CONFIG_DIR/$CONFIG"
+    config_alias="$CONFIG_DIR/${CONFIG%.conf}"
+    config_relative="config/$CONFIG"
+    config_relative_alias="config/${CONFIG%.conf}"
+    runtime_uid="$(id -u "$STRATUM_USER" 2>/dev/null || true)"
+
+    [[ -n "$runtime_uid" ]] || return 1
 
     for proc in /proc/[0-9]*; do
 
         pid="${proc#/proc/}"
+        owner_uid="$(stat -c '%u' "$proc" 2>/dev/null || true)"
+        [[ "$owner_uid" == "$runtime_uid" ]] || continue
 
         exe="$(readlink "$proc/exe" 2>/dev/null || true)"
 
@@ -490,21 +506,54 @@ stratum_real_process_pids() {
         fi
 
         [[ -n "$cmd" ]] || continue
-        [[ "$cmd" == *"$config_stem"* ]] || continue
+
+        config_matches="n"
+        while IFS= read -r -d '' arg; do
+            if [[ "$arg" == "$config_path" ||
+                  "$arg" == "$config_alias" ||
+                  "$arg" == "$config_relative" ||
+                  "$arg" == "$config_relative_alias" ||
+                  "$arg" == "$CONFIG" ||
+                  "$arg" == "${CONFIG%.conf}" ]]
+            then
+                config_matches="y"
+                break
+            fi
+        done < "$proc/cmdline" 2>/dev/null || true
+
+        [[ "$config_matches" == "y" ]] || continue
 
         if [[ -n "$exe" ]]; then
-            [[ "$exe" == "$expected_exe" ]] || continue
+            exe_name="${exe##*/}"
+            if [[ "$exe" != "$expected_exe" && "$exe_name" != stratum* ]]; then
+                continue
+            fi
         else
             #
             # Cross-user /proc restrictions can hide exe.
             # In that case require both the expected binary path
             # and the expected configuration in the command line.
             #
-            [[ "$cmd" == *"$STRATUM_DIR/$binary"* ]] || continue
+            [[ "$cmd" == *"stratum"* ]] || continue
         fi
 
         printf '%s\n' "$pid"
     done
+}
+
+
+stratum_terminate_managed_processes() {
+    local signal="${1:-TERM}"
+    local pid=""
+    local found="n"
+
+    while read -r pid; do
+        [[ -n "$pid" ]] || continue
+        found="y"
+        stratum_as_runtime kill "-$signal" "$pid" 2>/dev/null || true
+    done < <(stratum_real_process_pids)
+
+    [[ "$found" == "y" ]]
 }
 
 
@@ -683,7 +732,27 @@ stratum_stop() {
 
             echo "WARNING: ${SESSION^^} has a real Stratum process without screen:"
             stratum_real_process_lines
+            echo "Stopping the managed orphan process..."
+            stratum_terminate_managed_processes TERM || true
 
+            for i in $(seq 1 10); do
+                if ! stratum_real_process_running; then
+                    echo "${SESSION^^} orphan process stopped successfully."
+                    return 0
+                fi
+                sleep 1
+            done
+
+            echo "WARNING: managed process ignored TERM; sending KILL."
+            stratum_terminate_managed_processes KILL || true
+            sleep 1
+
+            if ! stratum_real_process_running; then
+                echo "${SESSION^^} orphan process stopped successfully."
+                return 0
+            fi
+
+            echo "ERROR: managed orphan process could not be stopped."
             return 1
         fi
 
@@ -706,6 +775,23 @@ stratum_stop() {
 
         sleep 1
     done
+
+    if stratum_real_process_running; then
+        echo "WARNING: managed process remained after screen stopped; sending TERM."
+        stratum_terminate_managed_processes TERM || true
+
+        for i in $(seq 1 10); do
+            if ! stratum_real_process_running; then
+                echo "${SESSION^^} stopped successfully."
+                return 0
+            fi
+            sleep 1
+        done
+
+        echo "WARNING: managed process ignored TERM; sending KILL."
+        stratum_terminate_managed_processes KILL || true
+        sleep 1
+    fi
 
     echo "ERROR: ${SESSION^^} did not stop cleanly."
 
@@ -1626,11 +1712,13 @@ configure_marketplace_profiles() {
     local existing_max=""
     local recommended_nicehash=""
     local recommended_mrr=""
+    local nicehash_supported="y"
     local nicehash_prompt="Enable NiceHash compatibility? (Y/n): "
 
     nicehash_enabled="y"
     recommended_nicehash="$(get_nicehash_minimum || true)"
     if ! is_positive_number "$recommended_nicehash"; then
+        nicehash_supported="n"
         nicehash_enabled="n"
         recommended_nicehash="$(get_template_difficulty || true)"
         recommended_nicehash="${recommended_nicehash:-1}"
@@ -1679,6 +1767,31 @@ configure_marketplace_profiles() {
         fi
     fi
 
+    echo
+    print_info "Difficulty recommendations for algorithm: $SELECTED_ALGO"
+    if [[ "$nicehash_supported" == "y" ]]; then
+        print_info "NiceHash official minimum : $recommended_nicehash"
+        print_info "NiceHash suggested profile: initial=$recommended_nicehash, min=$recommended_nicehash, max=$(number_multiply "$recommended_nicehash" 1024)"
+        print_info "NiceHash source           : live API, with local fallback table"
+    else
+        print_warning "NiceHash does not currently list $SELECTED_ALGO; compatibility is disabled by default"
+    fi
+    print_info "MRR suggested minimum     : $recommended_mrr (algorithm template difficulty)"
+    print_info "MRR suggested profile     : initial=$recommended_mrr, min=$recommended_mrr, max=$(number_multiply "$recommended_mrr" 1024)"
+    print_info "MRR has no universal minimum; adjust the profile to the rented rig's hashrate/difficulty"
+
+    if [[ "$nicehash_initial" != "$recommended_nicehash" ||
+          "$nicehash_diff_min" != "$recommended_nicehash" ]]
+    then
+        print_info "Existing NiceHash profile : initial=$nicehash_initial, min=$nicehash_diff_min, max=$nicehash_diff_max"
+    fi
+
+    if [[ "$mrr_initial" != "$recommended_mrr" ||
+          "$mrr_diff_min" != "$recommended_mrr" ]]
+    then
+        print_info "Existing MRR profile      : initial=$mrr_initial, min=$mrr_diff_min, max=$mrr_diff_max"
+    fi
+
     if [[ ! -t 0 ]]; then
         print_info "Non-interactive mode: using current/recommended NiceHash and MRR profiles"
         return 0
@@ -1687,8 +1800,6 @@ configure_marketplace_profiles() {
     echo
     print_info "NiceHash and MiningRigRentals compatibility"
     print_info "These profiles apply to the selected Stratum: $SELECTED_STRATUM_BINARY"
-    print_info "NiceHash minimum source: official API (local table if unavailable)"
-    print_info "MRR minimum source: $CONFIG_DIR/$SELECTED_ALGO.conf [STRATUM] difficulty"
     print_info "Press Enter to accept each recommended/current value."
 
     read -r -e -p "$nicehash_prompt" answer

@@ -1596,6 +1596,34 @@ read_number_with_default() {
     done
 }
 
+read_yes_no() {
+    local prompt="$1"
+    local default_answer="${2:-y}"
+    local value=""
+
+    while true; do
+        read -r -e -p "$prompt" value
+
+        case "${value,,}" in
+            "")
+                YES_NO_RESULT="$default_answer"
+                return 0
+                ;;
+            y|yes|s|si|sí)
+                YES_NO_RESULT="y"
+                return 0
+                ;;
+            n|no)
+                YES_NO_RESULT="n"
+                return 0
+                ;;
+            *)
+                print_warning "Invalid response: '$value'. Enter Y/yes/S/sí or N/no."
+                ;;
+        esac
+    done
+}
+
 number_multiply() {
     local value="$1"
     local multiplier="$2"
@@ -1802,12 +1830,18 @@ configure_marketplace_profiles() {
     print_info "These profiles apply to the selected Stratum: $SELECTED_STRATUM_BINARY"
     print_info "Press Enter to accept each recommended/current value."
 
-    read -r -e -p "$nicehash_prompt" answer
+    if [[ "$nicehash_supported" == "y" ]]; then
+        read_yes_no "$nicehash_prompt" "y"
+    else
+        read_yes_no "$nicehash_prompt" "n"
+    fi
+    answer="$YES_NO_RESULT"
+
     if [[ "$nicehash_enabled" == "y" ]]; then
         case "$answer" in
-            n|N|no|NO) nicehash_enabled="n" ;;
+            n) nicehash_enabled="n" ;;
         esac
-    elif [[ "$answer" =~ ^([yY]|yes|YES)$ ]]; then
+    elif [[ "$answer" == "y" ]]; then
         nicehash_enabled="y"
     fi
 
@@ -1822,9 +1856,10 @@ configure_marketplace_profiles() {
             fatal "NiceHash initial difficulty cannot exceed its maximum difficulty"
     fi
 
-    read -r -e -p "Enable MiningRigRentals compatibility? (Y/n): " answer
+    read_yes_no "Enable MiningRigRentals compatibility? (Y/n): " "y"
+    answer="$YES_NO_RESULT"
     case "$answer" in
-        n|N|no|NO) mrr_enabled="n" ;;
+        n) mrr_enabled="n" ;;
         *)
             mrr_initial="$(read_number_with_default "MRR initial difficulty" "$mrr_initial")"
             mrr_diff_min="$(read_number_with_default "MRR minimum difficulty" "$mrr_diff_min")"
@@ -2166,14 +2201,17 @@ create_coin_config() {
         if [ "${CREATECOIN:-false}" = true ] && [ ! -t 0 ]; then
             answer="y"
         else
-            read -r -e -p                 "Update the existing Stratum configuration? (Y/n) : "                 answer
+            read_yes_no \
+                "Update the existing Stratum configuration? (Y/n): " \
+                "y"
+            answer="$YES_NO_RESULT"
         fi
 
         case "$answer" in
-            ""|y|Y|yes|YES)
+            y)
                 choose_existing_port "$coin_config"
                 ;;
-            *)
+            n)
                 print_info "No changes were made"
                 exit 0
                 ;;

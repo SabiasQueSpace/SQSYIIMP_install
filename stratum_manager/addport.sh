@@ -165,13 +165,15 @@ STRATUM_DIR="${PATH_STRATUM:-$STORAGE_ROOT/yiimp/site/stratum}"
 #   2. the configured Stratum executable is really running
 #   3. that executable owns the configured TCP listening port
 #
-# KAWPOW compatibility:
+# Stratum configuration compatibility:
 #
-#   coin.kawpow.conf
+#   coin.algorithm.conf
 #          ->
-#   coin.kawpow
+#   coin.algorithm
 #
-# Some stratum-kp builds strip ".conf" before opening the file.
+# The alias is created for every selected Stratum. Binaries that
+# keep the suffix continue using the original file; binaries that
+# strip ".conf" transparently resolve the compatibility alias.
 
 sqsyiimp_ensure_runtime_alias() {
     local conf_path="$1"
@@ -186,13 +188,8 @@ sqsyiimp_ensure_runtime_alias() {
     base="${conf_path##*/}"
 
     case "$base" in
-        *.kawpow.conf)
-            alias_path="$config_dir/${base%.conf}"
-            ;;
-
-        *)
-            return 0
-            ;;
+        *.conf) alias_path="$config_dir/${base%.conf}" ;;
+        *) return 0 ;;
     esac
 
     if [[ -L "$alias_path" ]]; then
@@ -208,7 +205,7 @@ sqsyiimp_ensure_runtime_alias() {
     fi
 
     if [[ -e "$alias_path" ]]; then
-        echo "WARNING: KAWPOW compatibility path already exists and is not a symlink:" >&2
+        echo "WARNING: Stratum compatibility path already exists and is not a symlink:" >&2
         echo "         $alias_path" >&2
         return 0
     fi
@@ -322,7 +319,7 @@ sqsyiimp_refresh_stratum_wrappers() {
         [[ "$runtime" =~ ^[A-Za-z0-9._-]+$ ]] || continue
 
         #
-        # stratum-kp KAWPOW compatibility.
+        # Create the suffix-less compatibility alias for every runtime.
         #
         sqsyiimp_ensure_runtime_alias "$conf_path"
 
@@ -2234,7 +2231,7 @@ create_coin_config() {
     upsert_simple_key "$coin_config" "TCP" "port" "$coinport"
     upsert_simple_key "$coin_config" "RUNTIME" "binary" "$SELECTED_STRATUM_BINARY"
 
-    # Some stratum-kp builds strip ".conf" from KAWPOW configs.
+    # Support any selected Stratum, whether it keeps or strips ".conf".
     sqsyiimp_ensure_runtime_alias "$coin_config"
 
     local pool_coinbase_tag=""

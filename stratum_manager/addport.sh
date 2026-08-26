@@ -1510,21 +1510,141 @@ read_number_with_default() {
     done
 }
 
+number_multiply() {
+    local value="$1"
+    local multiplier="$2"
+
+    awk -v value="$value" -v multiplier="$multiplier" \
+        'BEGIN { printf "%.15g\n", value * multiplier }'
+}
+
+nicehash_algorithm_name() {
+    case "${SELECTED_ALGO,,}" in
+        scrypt) printf '%s\n' "Scrypt" ;;
+        sha|sha256|sha256d) printf '%s\n' "SHA256" ;;
+        x11) printf '%s\n' "X11" ;;
+        neoscrypt) printf '%s\n' "NeoScrypt" ;;
+        ethash|daggerhashimoto) printf '%s\n' "DaggerHashimoto" ;;
+        equihash) printf '%s\n' "Equihash" ;;
+        zhash|equihash144_5) printf '%s\n' "ZHash" ;;
+        randomx|randomxmonero) printf '%s\n' "RandomXmonero" ;;
+        eaglesong) printf '%s\n' "Eaglesong" ;;
+        kawpow) printf '%s\n' "KAWPOW" ;;
+        beamv3|beamhashiii) printf '%s\n' "BeamV3" ;;
+        octopus) printf '%s\n' "Octopus" ;;
+        autolykos|autolykos2) printf '%s\n' "Autolykos" ;;
+        etchash) printf '%s\n' "ETCHash" ;;
+        verushash|verus) printf '%s\n' "VerusHash" ;;
+        kheavyhash) printf '%s\n' "KHeavyHash" ;;
+        nexapow|nexa) printf '%s\n' "NexaPow" ;;
+        alephium|blake3) printf '%s\n' "Alephium" ;;
+        fishhash) printf '%s\n' "FishHash" ;;
+        *) return 1 ;;
+    esac
+}
+
+nicehash_fallback_minimum() {
+    case "$1" in
+        Scrypt) printf '%s\n' "50000" ;;
+        SHA256) printf '%s\n' "500000" ;;
+        X11) printf '%s\n' "256" ;;
+        NeoScrypt) printf '%s\n' "16383" ;;
+        DaggerHashimoto|ETCHash) printf '%s\n' "2" ;;
+        Equihash) printf '%s\n' "131072" ;;
+        ZHash) printf '%s\n' "1024" ;;
+        RandomXmonero) printf '%s\n' "262144" ;;
+        Eaglesong) printf '%s\n' "128000000000" ;;
+        KAWPOW) printf '%s\n' "1024000000" ;;
+        BeamV3) printf '%s\n' "2048" ;;
+        Octopus) printf '%s\n' "10000000000" ;;
+        Autolykos) printf '%s\n' "4000000000" ;;
+        VerusHash) printf '%s\n' "1000000" ;;
+        KHeavyHash) printf '%s\n' "16384" ;;
+        NexaPow) printf '%s\n' "0.1" ;;
+        Alephium) printf '%s\n' "549755813888" ;;
+        FishHash) printf '%s\n' "100000000" ;;
+        *) return 1 ;;
+    esac
+}
+
+get_nicehash_minimum() {
+    local algorithm_name=""
+    local api_value=""
+
+    algorithm_name="$(nicehash_algorithm_name || true)"
+    [[ -n "$algorithm_name" ]] || return 1
+
+    if command -v curl >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+        api_value="$(
+            curl -fsS --connect-timeout 3 --max-time 8 \
+                'https://api2.nicehash.com/main/api/v2/public/buy/info' 2>/dev/null |
+                python3 -c '
+import json, sys
+target = sys.argv[1].lower()
+try:
+    data = json.load(sys.stdin)
+    for item in data.get("miningAlgorithms", []):
+        if str(item.get("name", "")).lower() == target:
+            value = item.get("min_diff_initial")
+            if value is not None:
+                print(value)
+            break
+except (ValueError, TypeError):
+    pass
+' "$algorithm_name" 2>/dev/null || true
+        )"
+    fi
+
+    if is_positive_number "$api_value"; then
+        printf '%s\n' "$api_value"
+        return 0
+    fi
+
+    api_value="$(nicehash_fallback_minimum "$algorithm_name" || true)"
+    if is_positive_number "$api_value"; then
+        printf '%s\n' "$api_value"
+        return 0
+    fi
+
+    return 1
+}
+
+get_template_difficulty() {
+    local base_config="$CONFIG_DIR/$SELECTED_ALGO.conf"
+    local value=""
+
+    value="$(get_simple_key "$base_config" "STRATUM" "difficulty" || true)"
+    is_positive_number "$value" || return 1
+    printf '%s\n' "$value"
+}
+
 configure_marketplace_profiles() {
     local coin_config="$CONFIG_DIR/$coinsymbollower.$SELECTED_ALGO.conf"
     local answer=""
     local existing_initial=""
     local existing_min=""
     local existing_max=""
+    local recommended_nicehash=""
+    local recommended_mrr=""
+    local nicehash_prompt="Enable NiceHash compatibility? (Y/n): "
 
     nicehash_enabled="y"
-    nicehash_initial="1"
-    nicehash_diff_min="0.5"
-    nicehash_diff_max="8192"
+    recommended_nicehash="$(get_nicehash_minimum || true)"
+    if ! is_positive_number "$recommended_nicehash"; then
+        nicehash_enabled="n"
+        recommended_nicehash="$(get_template_difficulty || true)"
+        recommended_nicehash="${recommended_nicehash:-1}"
+        nicehash_prompt="NiceHash does not list this algorithm. Enable manually? (y/N): "
+    fi
+    nicehash_initial="$recommended_nicehash"
+    nicehash_diff_min="$recommended_nicehash"
+    nicehash_diff_max="$(number_multiply "$recommended_nicehash" 1024)"
     mrr_enabled="y"
-    mrr_initial="0.03125"
-    mrr_diff_min="0.005"
-    mrr_diff_max="8192"
+    recommended_mrr="$(get_template_difficulty || true)"
+    recommended_mrr="${recommended_mrr:-1}"
+    mrr_initial="$recommended_mrr"
+    mrr_diff_min="$recommended_mrr"
+    mrr_diff_max="$(number_multiply "$recommended_mrr" 1024)"
 
     if [[ -f "$coin_config" ]]; then
         existing_initial="$(get_simple_key "$coin_config" "STRATUM" "nicehash" || true)"
@@ -1537,6 +1657,7 @@ configure_marketplace_profiles() {
             number_le "$existing_min" "$existing_initial" &&
             number_le "$existing_initial" "$existing_max"
         then
+            nicehash_enabled="y"
             nicehash_initial="$existing_initial"
             nicehash_diff_min="$existing_min"
             nicehash_diff_max="$existing_max"
@@ -1566,22 +1687,29 @@ configure_marketplace_profiles() {
     echo
     print_info "NiceHash and MiningRigRentals compatibility"
     print_info "These profiles apply to the selected Stratum: $SELECTED_STRATUM_BINARY"
+    print_info "NiceHash minimum source: official API (local table if unavailable)"
+    print_info "MRR minimum source: $CONFIG_DIR/$SELECTED_ALGO.conf [STRATUM] difficulty"
     print_info "Press Enter to accept each recommended/current value."
 
-    read -r -e -p "Enable NiceHash compatibility? (Y/n): " answer
-    case "$answer" in
-        n|N|no|NO) nicehash_enabled="n" ;;
-        *)
-            nicehash_initial="$(read_number_with_default "NiceHash initial difficulty" "$nicehash_initial")"
-            nicehash_diff_min="$(read_number_with_default "NiceHash minimum difficulty" "$nicehash_diff_min")"
-            nicehash_diff_max="$(read_number_with_default "NiceHash maximum difficulty" "$nicehash_diff_max")"
+    read -r -e -p "$nicehash_prompt" answer
+    if [[ "$nicehash_enabled" == "y" ]]; then
+        case "$answer" in
+            n|N|no|NO) nicehash_enabled="n" ;;
+        esac
+    elif [[ "$answer" =~ ^([yY]|yes|YES)$ ]]; then
+        nicehash_enabled="y"
+    fi
 
-            number_le "$nicehash_diff_min" "$nicehash_initial" ||
-                fatal "NiceHash minimum difficulty cannot exceed its initial difficulty"
-            number_le "$nicehash_initial" "$nicehash_diff_max" ||
-                fatal "NiceHash initial difficulty cannot exceed its maximum difficulty"
-            ;;
-    esac
+    if [[ "$nicehash_enabled" == "y" ]]; then
+        nicehash_initial="$(read_number_with_default "NiceHash initial difficulty" "$nicehash_initial")"
+        nicehash_diff_min="$(read_number_with_default "NiceHash minimum difficulty" "$nicehash_diff_min")"
+        nicehash_diff_max="$(read_number_with_default "NiceHash maximum difficulty" "$nicehash_diff_max")"
+
+        number_le "$nicehash_diff_min" "$nicehash_initial" ||
+            fatal "NiceHash minimum difficulty cannot exceed its initial difficulty"
+        number_le "$nicehash_initial" "$nicehash_diff_max" ||
+            fatal "NiceHash initial difficulty cannot exceed its maximum difficulty"
+    fi
 
     read -r -e -p "Enable MiningRigRentals compatibility? (Y/n): " answer
     case "$answer" in

@@ -55,6 +55,51 @@ colored_message() {
     echo "${CYAN}$1${RESET}"
 }
 
+# Return a colored health label from a percentage/value and two thresholds.
+health_label() {
+    local value="$1" warning="$2" critical="$3"
+    if [ "$value" -ge "$critical" ]; then
+        printf "%sCRITICAL%s" "$RED" "$RESET"
+    elif [ "$value" -ge "$warning" ]; then
+        printf "%sWARNING%s" "$YELLOW" "$RESET"
+    else
+        printf "%sOK%s" "$GREEN" "$RESET"
+    fi
+}
+
+# Print a systemd service status without failing when a package is absent.
+service_status() {
+    local unit="$1"
+    if systemctl is-active --quiet "$unit" 2>/dev/null; then
+        printf "%srunning%s" "$GREEN" "$RESET"
+    elif systemctl list-unit-files "$unit" --no-legend 2>/dev/null | grep -q .; then
+        printf "%sstopped%s" "$RED" "$RESET"
+    else
+        printf "%snot installed%s" "$YELLOW" "$RESET"
+    fi
+}
+
+# Find the installed PHP-FPM unit (for example php8.1-fpm.service).
+php_fpm_status() {
+    local unit
+    unit=$(systemctl list-unit-files 'php*-fpm.service' --no-legend 2>/dev/null | awk 'NR==1 {print $1}')
+    if [ -n "$unit" ]; then
+        service_status "$unit"
+    else
+        printf "%snot installed%s" "$YELLOW" "$RESET"
+    fi
+}
+
+firewall_status() {
+    if ! command -v ufw >/dev/null 2>&1; then
+        printf "%snot installed%s" "$YELLOW" "$RESET"
+    elif ufw status 2>/dev/null | grep -q '^Status: active'; then
+        printf "%senabled%s" "$GREEN" "$RESET"
+    else
+        printf "%sdisabled%s" "$RED" "$RESET"
+    fi
+}
+
 # Display current date and time
 date=$(date)
 echo -e "${YELLOW}Current date and time:${GREEN} $date ${RESET}"
@@ -64,6 +109,44 @@ echo
 colored_message "System information:"
 echo
 /usr/bin/landscape-sysinfo
+echo
+
+# Health overview. Thresholds: memory/disk/inodes 80/90%, swap 20/80%,
+# temperature 70/85 C; load is compared with the number of CPU cores.
+colored_message "Health:"
+cpu_load=$(awk '{print $1}' /proc/loadavg)
+cpu_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
+cpu_load_x100=$(awk -v load="$cpu_load" 'BEGIN {printf "%.0f", load * 100}')
+cpu_warning=$((cpu_cores * 100))
+cpu_critical=$((cpu_cores * 200))
+memory_pct=$(free | awk '/^Mem:/ {printf "%.0f", ($3/$2)*100}')
+disk_pct=$(df -P / | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+inode_pct=$(df -Pi / | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+swap_pct=$(free | awk '/^Swap:/ {if ($2 == 0) print 0; else printf "%.0f", ($3/$2)*100}')
+temperature=""
+for thermal_file in /sys/class/thermal/thermal_zone*/temp; do
+    if [ -r "$thermal_file" ]; then
+        temperature=$(awk '{printf "%.0f", $1/1000}' "$thermal_file")
+        break
+    fi
+done
+
+printf "  %-14s %-20s %b\n" "CPU load:" "$cpu_load" "$(health_label "$cpu_load_x100" "$cpu_warning" "$cpu_critical")"
+printf "  %-14s %-20s %b\n" "Memory:" "${memory_pct}%" "$(health_label "$memory_pct" 80 90)"
+printf "  %-14s %-20s %b\n" "Disk /:" "${disk_pct}%" "$(health_label "$disk_pct" 80 90)"
+printf "  %-14s %-20s %b\n" "Inodes:" "${inode_pct}%" "$(health_label "$inode_pct" 80 90)"
+printf "  %-14s %-20s %b\n" "Swap:" "${swap_pct}%" "$(health_label "$swap_pct" 20 80)"
+if [ -n "$temperature" ]; then
+    printf "  %-14s %-20s %b\n" "Temperature:" "${temperature} C" "$(health_label "$temperature" 70 85)"
+else
+    printf "  %-14s %-20s %b\n" "Temperature:" "N/A" "${YELLOW}UNAVAILABLE${RESET}"
+fi
+echo
+
+colored_message "Core services:"
+printf "  %-13s %-22b %-13s %b\n" "Nginx:" "$(service_status nginx.service)" "PHP-FPM:" "$(php_fpm_status)"
+printf "  %-13s %-22b %-13s %b\n" "MariaDB:" "$(service_status mariadb.service)" "Fail2ban:" "$(service_status fail2ban.service)"
+printf "  %-13s %-22b %-13s %b\n" "Cron:" "$(service_status cron.service)" "Firewall:" "$(firewall_status)"
 echo
 
 # Pool status

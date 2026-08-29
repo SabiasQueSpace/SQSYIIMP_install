@@ -139,7 +139,8 @@ The upgrade process includes:
 7. Create a system backup.
 8. Fetch the published release.
 9. Update the `main` branch without leaving the repository in detached HEAD.
-10. Synchronize active SQSYIIMP runtime files.
+10. Synchronize active SQSYIIMP runtime files, including system functions,
+    DaemonBuilder and the Ubuntu or Debian MOTD dashboard.
 11. Update the installed version metadata.
 12. Verify services after the upgrade.
 
@@ -152,7 +153,7 @@ Installed version metadata is stored in:
 Example:
 
 ```text
-VERSION=v1.0.0
+VERSION=v1.0.1
 ```
 
 ### Local modification protection
@@ -376,9 +377,19 @@ motd
 The dashboard can show information such as:
 
 - SQSYIIMP version
-- System load
-- Disk usage
-- Memory usage
+- CPU load health
+- Memory usage health
+- Root filesystem usage
+- Inode usage
+- Swap usage
+- System temperature when available
+- Colored `OK`, `WARNING` and `CRITICAL` indicators
+- Nginx status
+- PHP-FPM status
+- MariaDB status
+- Fail2ban status
+- Cron status
+- UFW firewall status
 - Network addresses
 - YiiMP paths
 - Screen status
@@ -540,6 +551,10 @@ The exact contents of individual directories may evolve as SQSYIIMP develops.
 | DaemonBuilder runtime | `/home/crypto-data/daemon_builder` |
 | Installed version | `/etc/yiimpoolversion.conf` |
 | SQSYIIMP functions | `/etc/functions.sh` |
+| MOTD dashboard | `/etc/update-motd.d/` |
+| MOTD header | `/etc/update-motd.d/00-header` |
+| MOTD system information | `/etc/update-motd.d/10-sysinfo` |
+| MOTD footer | `/etc/update-motd.d/90-footer` |
 
 Some paths may vary if a custom storage root is selected during installation.
 

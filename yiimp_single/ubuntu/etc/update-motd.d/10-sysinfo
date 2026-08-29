@@ -100,6 +100,33 @@ firewall_status() {
     fi
 }
 
+# Display host details that are not repeated in the Health section.
+print_system_information() {
+    local process_count user_count family interface address label
+
+    process_count=$(ps -e --no-headers 2>/dev/null | wc -l | tr -d ' ')
+    user_count=$(who 2>/dev/null | wc -l | tr -d ' ')
+
+    printf "  %-25s %s\n" "Uptime:" "$(uptime -p 2>/dev/null || echo unavailable)"
+    printf "  %-25s %s\n" "Processes:" "${process_count:-0}"
+    printf "  %-25s %s\n" "Users logged in:" "${user_count:-0}"
+
+    if command -v ip >/dev/null 2>&1; then
+        while read -r family interface address; do
+            address=${address%/*}
+            case "$family" in
+                inet)  label="IPv4 address for ${interface}:" ;;
+                inet6) label="IPv6 address for ${interface}:" ;;
+                *)     continue ;;
+            esac
+            printf "  %-25s %s\n" "$label" "$address"
+        done < <(
+            ip -o addr show scope global up 2>/dev/null |
+                awk '$3 == "inet" || $3 == "inet6" {print $3, $2, $4}'
+        )
+    fi
+}
+
 # Display current date and time
 date=$(date)
 echo -e "${YELLOW}Current date and time:${GREEN} $date ${RESET}"
@@ -108,7 +135,7 @@ echo
 # Display system information
 colored_message "System information:"
 echo
-/usr/bin/landscape-sysinfo
+print_system_information
 echo
 
 # Health overview. Thresholds: memory/disk/inodes 80/90%, swap 20/80%,
@@ -116,11 +143,14 @@ echo
 colored_message "Health:"
 cpu_load=$(awk '{print $1}' /proc/loadavg)
 cpu_cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)
-cpu_load_x100=$(awk -v load="$cpu_load" 'BEGIN {printf "%.0f", load * 100}')
+cpu_load_x100=$(awk -v load_value="$cpu_load" 'BEGIN {printf "%.0f", load_value * 100}')
 cpu_warning=$((cpu_cores * 100))
 cpu_critical=$((cpu_cores * 200))
 memory_pct=$(free | awk '/^Mem:/ {printf "%.0f", ($3/$2)*100}')
-disk_pct=$(df -P / | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
+read -r disk_pct disk_total_gb < <(
+    df -B1 -P / | awk 'NR==2 {printf "%.1f %.2f", ($3/$2)*100, $2/1000000000}'
+)
+disk_health_pct=$(awk -v disk_value="$disk_pct" 'BEGIN {printf "%.0f", disk_value}')
 inode_pct=$(df -Pi / | awk 'NR==2 {gsub(/%/, "", $5); print $5}')
 swap_pct=$(free | awk '/^Swap:/ {if ($2 == 0) print 0; else printf "%.0f", ($3/$2)*100}')
 temperature=""
@@ -133,7 +163,7 @@ done
 
 printf "  %-14s %-20s %b\n" "CPU load:" "$cpu_load" "$(health_label "$cpu_load_x100" "$cpu_warning" "$cpu_critical")"
 printf "  %-14s %-20s %b\n" "Memory:" "${memory_pct}%" "$(health_label "$memory_pct" 80 90)"
-printf "  %-14s %-20s %b\n" "Disk /:" "${disk_pct}%" "$(health_label "$disk_pct" 80 90)"
+printf "  %-14s %-20s %b\n" "Usage of /:" "${disk_pct}% of ${disk_total_gb}GB" "$(health_label "$disk_health_pct" 80 90)"
 printf "  %-14s %-20s %b\n" "Inodes:" "${inode_pct}%" "$(health_label "$inode_pct" 80 90)"
 printf "  %-14s %-20s %b\n" "Swap:" "${swap_pct}%" "$(health_label "$swap_pct" 20 80)"
 if [ -n "$temperature" ]; then

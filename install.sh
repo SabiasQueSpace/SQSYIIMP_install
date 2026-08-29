@@ -18,7 +18,9 @@ PROJECT_NAME="SQSYIIMP"
 PROJECT_SUBTITLE="SabiasQue.Space"
 
 REPO_URL="${SQSYIIMP_REPO_URL:-https://github.com/SabiasQueSpace/SQSYIIMP_install.git}"
-TAG="${TAG:-v1}"
+# Leave TAG empty to install the latest stable vX.Y.Z release. A caller can
+# still select an exact release explicitly, for example TAG=v1.0.1.
+TAG="${TAG:-}"
 INSTALL_DIR="${SQSYIIMP_INSTALL_DIR:-$HOME/sqsyiimp}"
 VERSION_FILE="/etc/yiimpoolversion.conf"
 
@@ -73,12 +75,49 @@ install_git() {
 }
 
 remote_tag_exists() {
+    local tag="${1:-$TAG}"
+
+    [ -n "$tag" ] || return 1
+
     git ls-remote \
         --exit-code \
         --tags \
         "$REPO_URL" \
-        "refs/tags/$TAG" \
+        "refs/tags/$tag" \
         >/dev/null 2>&1
+}
+
+latest_stable_tag() {
+    git ls-remote \
+        --tags \
+        --refs \
+        "$REPO_URL" \
+        'refs/tags/v*' \
+        2>/dev/null |
+        awk -F/ '$3 ~ /^v[0-9]+\.[0-9]+\.[0-9]+$/ {print $3}' |
+        sort -V |
+        tail -n 1
+}
+
+resolve_release_tag() {
+    local latest=""
+
+    if [ -n "$TAG" ]; then
+        remote_tag_exists "$TAG" \
+            || fail "Requested release tag was not found: $TAG"
+
+        log_info "Selected release: $TAG"
+        return
+    fi
+
+    log_info "Detecting the latest stable SQSYIIMP release..."
+    latest="$(latest_stable_tag)"
+
+    [ -n "$latest" ] \
+        || fail "No stable SQSYIIMP release tag matching vX.Y.Z was found"
+
+    TAG="$latest"
+    log_info "Latest stable release: $TAG"
 }
 
 remote_default_branch() {
@@ -103,32 +142,33 @@ clone_repository() {
 
     ensure_repository_access
 
-    if remote_tag_exists; then
-        log_info "Cloning release $TAG from $REPO_URL..."
-
-        git clone \
-            --depth 1 \
-            --branch "$TAG" \
-            "$REPO_URL" \
-            "$INSTALL_DIR" \
-            < /dev/null
-
-        return
-    fi
-
     default_branch="$(remote_default_branch)"
 
     [ -n "$default_branch" ] \
         || fail "Unable to determine the repository default branch"
 
-    log_warn "Release tag $TAG was not found. Using $default_branch."
+    log_info "Cloning $default_branch and installing release $TAG..."
 
     git clone \
         --depth 1 \
         --branch "$default_branch" \
         "$REPO_URL" \
         "$INSTALL_DIR" \
-        < /dev/null
+        < /dev/null \
+        || fail "Unable to clone repository branch: $default_branch"
+
+    git -C "$INSTALL_DIR" fetch \
+        --depth 1 \
+        --force \
+        origin \
+        "refs/tags/$TAG:refs/tags/$TAG" \
+        < /dev/null \
+        || fail "Unable to fetch release tag: $TAG"
+
+    # Keep the checkout on the normal branch so the built-in updater can
+    # fast-forward it to a future release without encountering detached HEAD.
+    git -C "$INSTALL_DIR" reset --hard "$TAG" >/dev/null \
+        || fail "Unable to position $default_branch at release $TAG"
 }
 
 update_repository() {
@@ -162,38 +202,32 @@ update_repository() {
         fail "Automatic update stopped to protect local changes"
     fi
 
-    if remote_tag_exists; then
-        log_info "Updating checkout to release $TAG..."
-
-        git -C "$INSTALL_DIR" fetch \
-            --depth 1 \
-            --force \
-            origin \
-            "refs/tags/$TAG:refs/tags/$TAG"
-
-        git -C "$INSTALL_DIR" checkout -q "$TAG"
-
-        return
-    fi
-
     default_branch="$(remote_default_branch)"
 
     [ -n "$default_branch" ] \
         || fail "Unable to determine the repository default branch"
 
-    log_warn \
-        "Release tag $TAG was not found. Updating from origin/$default_branch."
+    log_info "Updating checkout to release $TAG on branch $default_branch..."
 
     git -C "$INSTALL_DIR" fetch \
         --depth 1 \
         --force \
         --prune \
         origin \
-        "$default_branch"
+        "+refs/heads/$default_branch:refs/remotes/origin/$default_branch" \
+        "refs/tags/$TAG:refs/tags/$TAG" \
+        || fail "Unable to fetch branch $default_branch and release $TAG"
 
-    git -C "$INSTALL_DIR" checkout \
+    git -C "$INSTALL_DIR" checkout -q \
         -B "$default_branch" \
-        "origin/$default_branch"
+        "$TAG" \
+        || fail "Unable to position $default_branch at release $TAG"
+
+    git -C "$INSTALL_DIR" branch \
+        --set-upstream-to="origin/$default_branch" \
+        "$default_branch" \
+        >/dev/null \
+        || fail "Unable to configure upstream branch origin/$default_branch"
 }
 
 prepare_repository() {
@@ -248,6 +282,7 @@ start_installation() {
 main() {
     setup_sudo
     install_git
+    resolve_release_tag
     prepare_repository
     install_launcher
     set_installer_version

@@ -338,6 +338,61 @@ sync_installer_runtime() {
         return 1
     fi
 
+    # Active MOTD runtime. Installing these files is required during upgrades;
+    # updating the repository alone does not change /etc/update-motd.d/.
+    local distro_id=""
+    local motd_source=""
+    local motd_file=""
+
+    if [[ -r /etc/os-release ]]; then
+        distro_id=$(awk -F= '$1 == "ID" {gsub(/"/, "", $2); print $2}' /etc/os-release)
+    fi
+
+    case "$distro_id" in
+        ubuntu)
+            motd_source="$repo/yiimp_single/ubuntu/etc/update-motd.d"
+            ;;
+        debian)
+            motd_source="$repo/yiimp_single/debian/etc/update-motd.d"
+            ;;
+        *)
+            log_message "$RED" "Unsupported distribution for MOTD synchronization: ${distro_id:-unknown}"
+            return 1
+            ;;
+    esac
+
+    for motd_file in 00-header 10-sysinfo 90-footer; do
+        if [[ ! -f "$motd_source/$motd_file" ]]; then
+            log_message "$RED" "Missing MOTD source file: $motd_source/$motd_file"
+            return 1
+        fi
+
+        if ! bash -n "$motd_source/$motd_file"; then
+            log_message "$RED" "Invalid MOTD syntax: $motd_source/$motd_file"
+            return 1
+        fi
+    done
+
+    if ! sudo install -d -o root -g root -m 755 /etc/update-motd.d; then
+        log_message "$RED" "Failed to prepare /etc/update-motd.d"
+        return 1
+    fi
+
+    for motd_file in 00-header 10-sysinfo 90-footer; do
+        if ! sudo install \
+            -o root \
+            -g root \
+            -m 755 \
+            "$motd_source/$motd_file" \
+            "/etc/update-motd.d/$motd_file"
+        then
+            log_message "$RED" "Failed to update /etc/update-motd.d/$motd_file"
+            return 1
+        fi
+    done
+
+    log_message "$GREEN" "SQSYIIMP MOTD runtime synchronized successfully"
+
     # Active DaemonBuilder runtime.
     if ! sudo mkdir -p "$daemonbuilder_target"; then
         log_message "$RED" "Failed to create $daemonbuilder_target"

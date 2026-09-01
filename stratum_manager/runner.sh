@@ -21,6 +21,7 @@ STRATUM_DIR="${STRATUM_RUNTIME_DIR:-${SQS_STRATUM_DIR:-${STORAGE_ROOT}/yiimp/sit
 CONFIG_DIR="$STRATUM_DIR/config"
 DEFAULT_BINARY="stratum"
 RESTART_DELAY="${STRATUM_RESTART_DELAY:-${SQS_STRATUM_RESTART_DELAY:-2}}"
+STRATUM_LOG_DIR="${STRATUM_LOG_DIR:-/var/log}"
 
 usage() {
     echo "Usage: $0 [--resolve] <config-file>" >&2
@@ -101,6 +102,8 @@ main() {
     local config_path
     local binary_path
     local config_arg
+    local coin_name
+    local log_file
     local rc
 
     if [ "${1:-}" = "--resolve" ]; then
@@ -118,6 +121,16 @@ main() {
         echo "ERROR: Stratum config not found: $config_input" >&2
         exit 2
     }
+
+    coin_name="${config_path##*/}"
+    coin_name="${coin_name%%.*}"
+    log_file="${STRATUM_LOG_DIR}/stratum-${coin_name}.log"
+
+    if [ ! -w "$log_file" ]; then
+        echo "ERROR: Stratum log is not writable: $log_file" >&2
+        echo "Run stratum_manager/install-runtime.sh to create logs and permissions." >&2
+        exit 73
+    fi
 
     binary_path=$(resolve_binary_path "$config_path") || exit 126
 
@@ -143,7 +156,10 @@ main() {
     while true; do
         (
             cd "$STRATUM_DIR" || exit 1
-            "$binary_path" "$config_arg"
+            # Keep the live GNU Screen console while persisting the exact
+            # same stdout/stderr stream for post-mortem diagnostics.
+            "$binary_path" "$config_arg" 2>&1 | tee -a "$log_file"
+            exit "${PIPESTATUS[0]}"
         )
         rc=$?
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] STRATUM_EXIT config=${config_path##*/} binary=${binary_path##*/} exit_code=$rc restart_in=${RESTART_DELAY}s" >&2

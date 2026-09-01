@@ -28,6 +28,36 @@ sudo install -d     -o "$STORAGE_USER"     -g "$STORAGE_GROUP"     -m 755     "$
 
 sudo install     -o "$STORAGE_USER"     -g "$STORAGE_GROUP"     -m 755     "$RUNNER_SOURCE"     "$STRATUM_DIR/runner.sh"
 
+# Persistent per-coin Stratum logs. Existing configurations are migrated
+# here; newly-created configurations are handled by addport as well.
+shopt -s nullglob
+for config_file in "$STRATUM_DIR"/config/*.conf; do
+    config_name="${config_file##*/}"
+    coin_name="${config_name%%.*}"
+    if [[ "$coin_name" =~ ^[A-Za-z0-9_-]+$ ]]; then
+        sudo touch "/var/log/stratum-${coin_name}.log"
+        sudo chown "$STORAGE_USER:$STORAGE_GROUP" "/var/log/stratum-${coin_name}.log"
+        sudo chmod 0640 "/var/log/stratum-${coin_name}.log"
+    fi
+done
+shopt -u nullglob
+
+sudo tee /etc/logrotate.d/sqsyiimp-stratum >/dev/null <<EOF_LOGROTATE
+/var/log/stratum-*.log {
+    daily
+    rotate 7
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+    dateext
+    create 0640 ${STORAGE_USER} ${STORAGE_GROUP}
+}
+EOF_LOGROTATE
+sudo chown root:root /etc/logrotate.d/sqsyiimp-stratum
+sudo chmod 0644 /etc/logrotate.d/sqsyiimp-stratum
+
 sudo tee "$STRATUM_DIR/stratum-runner.sh" >/dev/null <<'EOF_COMPAT_RUNNER'
 #!/usr/bin/env bash
 exec "$(cd "$(dirname "$0")" && pwd)/runner.sh" "$@"
@@ -54,3 +84,4 @@ sudo chown "$STORAGE_USER:$STORAGE_GROUP" "$STRATUM_DIR/config/run.sh"
 sudo chmod 755 "$STRATUM_DIR/config/run.sh"
 
 printf 'Stratum runtime installed in %s\n' "$STRATUM_DIR"
+printf 'Stratum logs: /var/log/stratum-<coin>.log (7 daily rotations)\n'

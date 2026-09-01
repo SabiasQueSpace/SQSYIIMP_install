@@ -2253,6 +2253,14 @@ create_service_launcher() {
     local primary_command="/usr/bin/stratum.$coinsymbollower"
     local compatibility_command="/usr/bin/sqs-stratum-$coinsymbollower"
 
+    # runner.sh writes the complete live Stratum console to this file.
+    # Pre-create it because the runtime account cannot create files in /var/log.
+    sudo touch "/var/log/stratum-${coinsymbollower}.log"
+    sudo chown \
+        "${STORAGE_USER:-crypto-data}:${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" \
+        "/var/log/stratum-${coinsymbollower}.log"
+    sudo chmod 0640 "/var/log/stratum-${coinsymbollower}.log"
+
     sudo tee "$service_file" >/dev/null <<EOF_SERVICE
 #!/usr/bin/env bash
 
@@ -2398,7 +2406,10 @@ register_autostart() {
 
     current_user="$(id -un)"
 
-    log_file="$STORAGE_ROOT/yiimp/site/log/stratum-${coinsymbollower}-boot.log"
+    log_file="/var/log/stratum-${coinsymbollower}-boot.log"
+    sudo touch "$log_file"
+    sudo chown "$runtime_user:${STORAGE_GROUP:-$runtime_user}" "$log_file"
+    sudo chmod 0640 "$log_file"
 
     #
     # Remove legacy autostart for this coin from the current

@@ -4,6 +4,13 @@ All notable changes to SQSYIIMP are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Persist each coin's complete Stratum console in `/var/log/stratum-<coin>.log`.
+- Store each Stratum autostart log in `/var/log/stratum-<coin>-boot.log`.
+- Rotate Stratum logs daily, retaining seven rotations with compression.
+- Create and migrate per-coin log files with the configured runtime ownership.
+
 ### Fixed
 
 - Synchronize the active MOTD files during full SQSYIIMP upgrades.

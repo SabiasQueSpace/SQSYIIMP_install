@@ -2260,6 +2260,11 @@ create_service_launcher() {
         "${STORAGE_USER:-crypto-data}:${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" \
         "/var/log/stratum-${coinsymbollower}.log"
     sudo chmod 0640 "/var/log/stratum-${coinsymbollower}.log"
+    if command -v setfacl >/dev/null 2>&1 && \
+       [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" ]]; then
+        sudo setfacl -m "u:${SUDO_USER}:rw,m::rw" \
+            "/var/log/stratum-${coinsymbollower}.log"
+    fi
 
     sudo tee "$service_file" >/dev/null <<EOF_SERVICE
 #!/usr/bin/env bash
@@ -2287,6 +2292,25 @@ RUNNER="\$STRATUM_DIR/runner.sh"
 
 SESSION="$coinsymbollower"
 CONFIG="$coinsymbollower.$SELECTED_ALGO.conf"
+
+# Every coin Screen must belong to the YiiMP runtime account, regardless of
+# which administrator invoked /usr/bin/stratum.<coin>.
+if [[ "\$(id -un)" != "\$STRATUM_USER" ]]; then
+    if screen -ls 2>/dev/null | grep -Eq "[.]\${SESSION}[[:space:]]"; then
+        case "\${1:-}" in
+            stop|restart)
+                screen -S "\$SESSION" -X quit 2>/dev/null || true
+                sleep 1
+                ;;
+            start)
+                echo "ERROR: legacy screen '\$SESSION' belongs to \$(id -un)." >&2
+                echo "Run: \$0 restart" >&2
+                exit 1
+                ;;
+        esac
+    fi
+    exec sudo -u "\$STRATUM_USER" -H "\$0" "\$@"
+fi
 
 
 stratum_as_runtime() {

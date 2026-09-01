@@ -10,6 +10,8 @@ All notable changes to SQSYIIMP are documented in this file.
 - Store each Stratum autostart log in `/var/log/stratum-<coin>-boot.log`.
 - Rotate Stratum logs daily, retaining seven rotations with compression.
 - Create and migrate per-coin log files with the configured runtime ownership.
+- Force existing and new per-coin Screen sessions to run as the YiiMP runtime user.
+- Preserve administrator access to Stratum logs through per-file ACLs.
 
 ### Fixed
 

@@ -38,6 +38,11 @@ for config_file in "$STRATUM_DIR"/config/*.conf; do
         sudo touch "/var/log/stratum-${coin_name}.log"
         sudo chown "$STORAGE_USER:$STORAGE_GROUP" "/var/log/stratum-${coin_name}.log"
         sudo chmod 0640 "/var/log/stratum-${coin_name}.log"
+        if command -v setfacl >/dev/null 2>&1 && \
+           [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+            sudo setfacl -m "u:${SUDO_USER}:rw,m::rw" \
+                "/var/log/stratum-${coin_name}.log"
+        fi
     fi
 done
 shopt -u nullglob
@@ -53,10 +58,72 @@ sudo tee /etc/logrotate.d/sqsyiimp-stratum >/dev/null <<EOF_LOGROTATE
     copytruncate
     dateext
     create 0640 ${STORAGE_USER} ${STORAGE_GROUP}
+    postrotate
+        /usr/bin/chown ${STORAGE_USER}:${STORAGE_GROUP} /var/log/stratum-*.log 2>/dev/null || true
+        /usr/bin/chmod 0640 /var/log/stratum-*.log 2>/dev/null || true
+        if [ -x /usr/bin/setfacl ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER:-root}" != root ]; then
+            /usr/bin/setfacl -m u:${SUDO_USER}:rw,m::rw /var/log/stratum-*.log 2>/dev/null || true
+        fi
+    endscript
 }
 EOF_LOGROTATE
 sudo chown root:root /etc/logrotate.d/sqsyiimp-stratum
 sudo chmod 0644 /etc/logrotate.d/sqsyiimp-stratum
+
+# Migrate pre-existing per-coin launchers. Older launchers created GNU Screen
+# sessions as whichever administrator invoked them. Keep their service logic,
+# but replace the public command with a wrapper that always delegates to the
+# configured YiiMP runtime account. During stop/restart it also removes a
+# legacy session owned by the invoking administrator.
+shopt -s nullglob
+for launcher in /usr/bin/stratum.*; do
+    coin_name="${launcher##*.}"
+    [[ "$coin_name" =~ ^[A-Za-z0-9_-]+$ ]] || continue
+    config_matches=("$STRATUM_DIR/config/${coin_name}."*.conf)
+    ((${#config_matches[@]} > 0)) || continue
+
+    service_launcher="$STRATUM_DIR/services/${coin_name}.sh"
+    if [ ! -f "$service_launcher" ]; then
+        sudo install -o root -g root -m 0755 "$launcher" "$service_launcher"
+    fi
+
+    sudo tee "$launcher" >/dev/null <<EOF_LAUNCHER
+#!/usr/bin/env bash
+
+set -u
+
+source /etc/yiimpool.conf
+[ -r "\${STORAGE_ROOT}/yiimp/.yiimp.conf" ] && source "\${STORAGE_ROOT}/yiimp/.yiimp.conf"
+[ -r /etc/default/sqsyiimp ] && source /etc/default/sqsyiimp
+
+STRATUM_USER="\${YIIMP_USER:-\${STORAGE_USER:-crypto-data}}"
+SESSION="${coin_name}"
+SERVICE_LAUNCHER="${service_launcher}"
+ACTION="\${1:-}"
+
+if [ "\$(id -un)" != "\$STRATUM_USER" ]; then
+    if /usr/bin/screen -ls 2>/dev/null | grep -Eq "[.]\${SESSION}[[:space:]]"; then
+        case "\$ACTION" in
+            stop|restart)
+                /usr/bin/screen -S "\$SESSION" -X quit 2>/dev/null || true
+                sleep 1
+                ;;
+            start)
+                echo "ERROR: legacy screen '\$SESSION' belongs to \$(id -un)." >&2
+                echo "Run: \$0 restart" >&2
+                exit 1
+                ;;
+        esac
+    fi
+    exec sudo -u "\$STRATUM_USER" -H "\$SERVICE_LAUNCHER" "\$@"
+fi
+
+exec "\$SERVICE_LAUNCHER" "\$@"
+EOF_LAUNCHER
+    sudo chown root:root "$launcher"
+    sudo chmod 0755 "$launcher"
+done
+shopt -u nullglob
 
 sudo tee "$STRATUM_DIR/stratum-runner.sh" >/dev/null <<'EOF_COMPAT_RUNNER'
 #!/usr/bin/env bash

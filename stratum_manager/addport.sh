@@ -216,6 +216,7 @@ sqsyiimp_ensure_runtime_alias() {
 
 sqsyiimp_refresh_stratum_wrappers() {
     local only_coin="${1:-}"
+    local preferred_config="${2:-}"
     local config_dir="${CONFIG_DIR:-${STRATUM_DIR}/config}"
     local control=""
     local base=""
@@ -251,13 +252,29 @@ sqsyiimp_refresh_stratum_wrappers() {
 
         config=""
 
+        # During add/update the newly generated dedicated config is the
+        # authoritative source. Never let a legacy config/stratum.<coin>
+        # controller select an obsolete config and overwrite the launcher.
+        if [[ -n "$preferred_config" && "$coin" == "$only_coin" ]]; then
+            if [[ "$preferred_config" =~ ^${coin}\.[A-Za-z0-9._-]+\.conf$ ]] &&
+               [[ -f "$config_dir/$preferred_config" ]]; then
+                config="$preferred_config"
+            else
+                echo "ERROR: invalid preferred Stratum config: $preferred_config" >&2
+                shopt -u nullglob
+                return 1
+            fi
+        fi
+
         # New managed wrapper.
-        config="$(
-            sed -nE \
-                's/^[[:space:]]*CONFIG="([^"]+)"[[:space:]]*$/\1/p' \
-                "$control" 2>/dev/null |
-            head -n1
-        )"
+        if [[ -z "$config" ]]; then
+            config="$(
+                sed -nE \
+                    's/^[[:space:]]*CONFIG="([^"]+)"[[:space:]]*$/\1/p' \
+                    "$control" 2>/dev/null |
+                head -n1
+            )"
+        fi
 
         # Legacy Addport wrapper.
         if [[ -z "$config" ]]; then
@@ -2531,6 +2548,7 @@ main() {
     local mode="${1:-}"
     local requested_algo=""
     local requested_binary=""
+    local installed_config=""
 
     ensure_layout
     ensure_sha256d_template
@@ -2651,7 +2669,21 @@ EOF_HELP
 
     # Convert only this coin to the managed health-check wrapper.
     # Do not rewrite unrelated Stratum services.
-    sqsyiimp_refresh_stratum_wrappers "$coinsymbollower"
+    sqsyiimp_refresh_stratum_wrappers \
+        "$coinsymbollower" \
+        "${CONFIG_PATH##*/}" || \
+        fatal "Could not synchronize the Stratum controller with the selected config"
+
+    installed_config="$(
+        sed -nE \
+            's/^[[:space:]]*CONFIG="([^"]+)"[[:space:]]*$/\1/p' \
+            "/usr/bin/stratum.$coinsymbollower" 2>/dev/null |
+        head -n1
+    )"
+
+    if [[ "$installed_config" != "${CONFIG_PATH##*/}" ]]; then
+        fatal "Installed launcher config mismatch: expected ${CONFIG_PATH##*/}, got ${installed_config:-none}"
+    fi
 
     sudo ufw allow "$coinport" >/dev/null 2>&1 || print_warning "Unable to add UFW rule for port $coinport"
 

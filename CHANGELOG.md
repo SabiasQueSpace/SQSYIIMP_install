@@ -12,6 +12,7 @@ All notable changes to SQSYIIMP are documented in this file.
 - Create and migrate per-coin log files with the configured runtime ownership.
 - Force existing and new per-coin Screen sessions to run as the YiiMP runtime user.
 - Preserve administrator access to Stratum logs through per-file ACLs.
+- Keep updated launchers synchronized with the newly selected config and binary.
 
 ### Fixed
 

@@ -4,6 +4,8 @@ All notable changes to SQSYIIMP are documented in this file.
 
 ## Unreleased
 
+## v1.0.2 - 2026-09-01
+
 ### Added
 
 - Persist each coin's complete Stratum console in `/var/log/stratum-<coin>.log`.

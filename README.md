@@ -153,7 +153,7 @@ Installed version metadata is stored in:
 Example:
 
 ```text
-VERSION=v1.0.1
+VERSION=v1.0.2
 ```
 
 ### Local modification protection
@@ -221,6 +221,12 @@ addport GAEL kawpow stratum-kp
 SQSYIIMP can bind an individual coin configuration to a selected Stratum
 runtime executable.
 
+When an existing coin is updated, Addport synchronizes the dedicated
+configuration, runtime binary, compatibility alias, managed controller,
+service launcher and autostart entry before starting the service. The update
+is aborted if the installed launcher does not reference the newly selected
+configuration.
+
 Check for a new SQSYIIMP release from Addport:
 
 ```bash
@@ -278,6 +284,66 @@ Example configuration path:
 
 This allows different Stratum implementations to coexist under the same YiiMP
 installation.
+
+Confirm the binary selected by a dedicated configuration with:
+
+```bash
+/home/crypto-data/yiimp/site/stratum/runner.sh \
+  --resolve gael.kawpow.conf
+```
+
+Confirm the configuration used by its managed launcher with:
+
+```bash
+grep -E '^(SESSION|CONFIG)=' \
+  /home/crypto-data/yiimp/site/stratum/services/gael.sh
+```
+
+The public command can be a runtime-user migration wrapper; in that case the
+service launcher is the authoritative location for `CONFIG`.
+
+### Per-coin Stratum logs
+
+The complete stdout and stderr stream remains visible in GNU Screen and is
+also persisted per coin:
+
+```text
+/var/log/stratum-<coin>.log
+/var/log/stratum-<coin>-boot.log
+```
+
+Logs are rotated daily by `/etc/logrotate.d/sqsyiimp-stratum`. Seven rotations
+are retained, older rotations are compressed, and `copytruncate` keeps active
+Stratum processes writing without requiring a restart.
+
+The files are owned by the YiiMP runtime account (`crypto-data` by default).
+The administrator who installs the runtime receives read/write access through
+an ACL while ownership remains with `crypto-data`.
+
+Examples:
+
+```bash
+tail -F /var/log/stratum-gael.log
+getfacl /var/log/stratum-gael.log
+sudo logrotate -d /etc/logrotate.d/sqsyiimp-stratum
+```
+
+### Managed coin sessions
+
+Per-coin Stratum sessions run as the configured YiiMP runtime user, even when
+an administrator invokes `/usr/bin/stratum.<coin>`. A restart migrates a
+legacy administrator-owned session to `crypto-data`.
+
+```bash
+stratum.gael restart
+sudo -u crypto-data -H screen -r gael
+```
+
+Verify the real process owner, executable and configuration with:
+
+```bash
+ps -eo user:20,pid,cmd | grep -E '[s]tratum.*config/gael'
+```
 
 ---
 

@@ -292,6 +292,11 @@ Confirm the binary selected by a dedicated configuration with:
   --resolve gael.kawpow.conf
 ```
 
+`--resolve` only validates and prints the selected executable. It does not
+start Stratum and does not require the per-coin log to exist yet. When a new
+coin is created, `addport` provisions its log with the configured runtime
+ownership before installing and starting the managed launcher.
+
 Confirm the configuration used by its managed launcher with:
 
 ```bash

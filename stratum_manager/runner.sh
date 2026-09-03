@@ -122,6 +122,13 @@ main() {
         exit 2
     }
 
+    binary_path=$(resolve_binary_path "$config_path") || exit 126
+
+    if [ "$resolve_only" = true ]; then
+        printf '%s\n' "$binary_path"
+        exit 0
+    fi
+
     coin_name="${config_path##*/}"
     coin_name="${coin_name%%.*}"
     log_file="${STRATUM_LOG_DIR}/stratum-${coin_name}.log"
@@ -130,13 +137,6 @@ main() {
         echo "ERROR: Stratum log is not writable: $log_file" >&2
         echo "Run stratum_manager/install-runtime.sh to create logs and permissions." >&2
         exit 73
-    fi
-
-    binary_path=$(resolve_binary_path "$config_path") || exit 126
-
-    if [ "$resolve_only" = true ]; then
-        printf '%s\n' "$binary_path"
-        exit 0
     fi
 
     ulimit -n 10240 2>/dev/null || true

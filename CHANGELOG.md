@@ -4,6 +4,13 @@ All notable changes to SQSYIIMP are documented in this file.
 
 ## Unreleased
 
+### Fixed
+
+- Allow `runner.sh --resolve` to validate a generated Stratum configuration
+  before its per-coin log is provisioned by `addport`.
+- Prevent the missing-log diagnostic from being followed by the misleading
+  `Generated config could not resolve its selected Stratum binary` error.
+
 ## v1.0.2 - 2026-09-01
 
 ### Added

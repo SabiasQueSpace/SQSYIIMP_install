@@ -1722,8 +1722,19 @@ if [[ ("$DAEMOND" != "true") ]]; then
 
     CONF_GROUP="$(id -gn "${CONF_OWNER}")"
 
+    # addport must have returned the dedicated Stratum port before the
+    # wallet configuration editor is opened. The operator may need this
+    # value while preparing the daemon configuration, so fail safely if
+    # it is missing instead of hiding the problem until the final summary.
+    if [[ -z "${COINPORT:-}" ]] || ! [[ "${COINPORT}" =~ ^[0-9]+$ ]]; then
+        print_error "Dedicated Stratum port is missing or invalid"
+        print_info "Run addport again before configuring the wallet"
+        exit 1
+    fi
+
     print_header "Wallet Configuration"
     print_status "Preparing configuration for ${coin^^}..."
+    print_info "Dedicated port: ${COINPORT}"
     print_info "Wallet dir    : ${COIN_WALLET_DIR}"
     print_info "Config file   : ${COIN_WALLET_CONF}"
 
@@ -1757,6 +1768,10 @@ The daemon binaries have been installed.
 
 Now configure the ${coin^^} wallet.
 
+Dedicated Stratum port:
+
+\Zb\Z2${COINPORT}\Zn
+
 Configuration file:
 
 \Zb\Z3${COIN_WALLET_CONF}\Zn
@@ -1764,10 +1779,11 @@ Configuration file:
 On the next screen you can paste or edit the configuration
 directly inside DaemonBuilder.
 
-You do NOT need to use nano.
+Keep the dedicated port above available while preparing the
+coin configuration. You do NOT need to use nano.
 
 After saving, installation will continue automatically." \
-        19 82
+        23 82
 
     while true; do
 
@@ -1777,7 +1793,7 @@ After saving, installation will continue automatically." \
             --stdout \
             --colors \
             --backtitle "MegaHashPool DaemonBuilder" \
-            --title "${coin^^} - Wallet Configuration" \
+            --title "${coin^^} - Wallet Configuration - Stratum port ${COINPORT}" \
             --ok-label "SAVE AND CONTINUE" \
             --cancel-label "CANCEL" \
             --editbox "${TMP_CONF}" \

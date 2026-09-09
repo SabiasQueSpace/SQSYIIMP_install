@@ -1651,6 +1651,10 @@ if [[ "$YIIMPCONF" == "true" ]]; then
     fi
 fi
 
+# By default keep the historical behavior: start the daemon automatically.
+# New coin installations may override this after the wallet config is saved.
+DAEMON_START_REQUESTED=true
+
 if [[ ("$DAEMOND" != "true") ]]; then
     echo
     clear
@@ -1871,6 +1875,36 @@ The installer cannot continue with an empty wallet configuration." \
 
     print_success "${coin^^} wallet configuration saved"
     print_info "Config file   : ${COIN_WALLET_CONF}"
+
+    if [[ "${YIIMPCONF}" == "true" ]]; then
+        if dialog \
+            --colors \
+            --backtitle "MegaHashPool DaemonBuilder" \
+            --title "${coin^^} - Start Daemon" \
+            --yes-label "START DAEMON NOW" \
+            --no-label "START LATER" \
+            --yesno "\
+The wallet configuration has been saved.
+
+Configuration:
+\Zb\Z3${COIN_WALLET_CONF}\Zn
+
+Dedicated Stratum port:
+\Zb\Z2${COINPORT}\Zn
+
+Do you want to start the ${coin^^} daemon now using this configuration?
+
+Choose START LATER if you want to review or modify the configuration first." \
+            20 82
+        then
+            DAEMON_START_REQUESTED=true
+            print_status "${coin^^} daemon will be started now"
+        else
+            DAEMON_START_REQUESTED=false
+            print_info "${coin^^} daemon start deferred by user"
+        fi
+    fi
+
     print_status "Continuing installation..."
 
     cd "$STORAGE_ROOT/daemon_builder"
@@ -1905,10 +1939,10 @@ print_divider
 print_header "Starting Daemon"
 print_status "Initializing ${coin^^} daemon..."
 
-DAEMON_START_OK=true
+DAEMON_START_OK=false
 DAEMON_AUTOSTART_OK=false
 
-if [[ "${YIIMPCONF}" == "true" ]]; then
+if [[ "${YIIMPCONF}" == "true" && "${DAEMON_START_REQUESTED}" == "true" ]]; then
 
     if sudo -u "${STORAGE_USER:-crypto-data}" "/usr/bin/${coind}" \
         -datadir="${STORAGE_ROOT}/wallets/.${coin,,}" \
@@ -1916,6 +1950,7 @@ if [[ "${YIIMPCONF}" == "true" ]]; then
         -daemon \
         -shrinkdebugfile
     then
+        DAEMON_START_OK=true
         print_success "${coin^^} daemon start command completed"
     else
         DAEMON_START_OK=false
@@ -1964,6 +1999,10 @@ if [[ "${YIIMPCONF}" == "true" ]]; then
         fi
     fi
 
+elif [[ "${YIIMPCONF}" == "true" ]]; then
+    print_info "Daemon start deferred by user"
+    print_info "Start later with:"
+    echo -e "  ${BLUE}sudo -u ${STORAGE_USER:-crypto-data} /usr/bin/${coind} -datadir=${STORAGE_ROOT}/wallets/.${coin,,} -conf=${coin,,}.conf -daemon -shrinkdebugfile${NC}"
 else
     print_info "Automatic daemon start skipped: YiiMP configuration is not enabled"
 fi
@@ -2065,17 +2104,24 @@ print_header "Daemon Status"
 
 if [[ "${YIIMPCONF}" == "true" ]]; then
 
-    if [[ "${DAEMON_START_OK}" == "true" ]]; then
-        print_success "Daemon start command successful"
+    if [[ "${DAEMON_START_REQUESTED}" != "true" ]]; then
+        print_info "Daemon start : deferred by user"
+        print_info "Autostart    : not enabled"
+        print_info "Start later  :"
+        echo -e "  ${BLUE}sudo -u ${STORAGE_USER:-crypto-data} /usr/bin/${coind} -datadir=${STORAGE_ROOT}/wallets/.${coin,,} -conf=${coin,,}.conf -daemon -shrinkdebugfile${NC}"
     else
-        print_error "Daemon failed to start"
-    fi
+        if [[ "${DAEMON_START_OK}" == "true" ]]; then
+            print_success "Daemon start command successful"
+        else
+            print_error "Daemon failed to start"
+        fi
 
-    if [[ "${DAEMON_AUTOSTART_OK}" == "true" ]]; then
-        print_success "Autostart enabled for ${STORAGE_USER:-crypto-data}"
-        print_info "Boot log     : ${YELLOW}${DAEMON_BOOT_LOG}${NC}"
-    else
-        print_warning "Autostart not verified"
+        if [[ "${DAEMON_AUTOSTART_OK}" == "true" ]]; then
+            print_success "Autostart enabled for ${STORAGE_USER:-crypto-data}"
+            print_info "Boot log     : ${YELLOW}${DAEMON_BOOT_LOG}${NC}"
+        else
+            print_warning "Autostart not verified"
+        fi
     fi
 
 else
@@ -2153,7 +2199,7 @@ print_divider
 # REAL END OF INSTALLATION
 # ============================================================
 
-if [[ "${YIIMPCONF}" == "true" && "${DAEMON_START_OK}" != "true" ]]; then
+if [[ "${YIIMPCONF}" == "true" && "${DAEMON_START_REQUESTED}" == "true" && "${DAEMON_START_OK}" != "true" ]]; then
 
     echo -e "$CYAN =========================================================================== $NC"
     echo -e "$RED Installation finished, but the ${coin^^} daemon did NOT start correctly. $NC"

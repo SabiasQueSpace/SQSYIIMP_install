@@ -367,11 +367,34 @@ cd $STORAGE_ROOT/daemon_builder/temp_coin_builds
 print_header "Coin Configuration"
 
 input_box "Coin Information" \
-"Please enter the Coin Symbol. Example: BTC
+"Please enter the full canonical Coin Name used by the daemon.
+\n\nExample: Raptoreum
+\n\nThis name is used for the daemon binaries and wallet data directory.
 \n\n*To paste, use Ctrl+Shift+V (or right-click in some terminals).
 \n\nCoin Name:" \
 "" \
 coin
+
+if [[ -z "${coin// }" ]]; then
+    print_error "Coin name cannot be empty"
+    exit 1
+fi
+
+input_box "Coin Symbol" \
+"Please enter the YiiMP coin symbol/ticker.
+\n\nExample: RTM
+\n\nThis symbol is used for the Stratum config, launcher, Screen session and logs.
+\n\n*To paste, use Ctrl+Shift+V (or right-click in some terminals).
+\n\nCoin Symbol:" \
+"" \
+coinsymbol
+
+coinsymbol="${coinsymbol^^}"
+if [[ ! "$coinsymbol" =~ ^[A-Z0-9][A-Z0-9_-]*$ ]]; then
+    print_error "Invalid coin symbol: $coinsymbol"
+    print_info "Use only letters, numbers, underscore or hyphen. Example: RTM"
+    exit 1
+fi
 
 convertlistalgos=$(find ${PATH_STRATUM}/config/ -mindepth 1 -maxdepth 1 -type f -not -name '.*' -not -name '*.sh' -not -name '*.log' -not -name 'stratum.*' -not -name '*.*.*' -iname '*.conf' -execdir basename -s '.conf' {} +);
 optionslistalgos=$(echo -e "${convertlistalgos}" | awk '{ printf "%s on\n", $1}' | sort | uniq | grep [[:alnum:]])
@@ -1663,7 +1686,7 @@ if [[ ("$DAEMOND" != "true") ]]; then
     echo -e "$CYAN --------------------------------------------------------------------------------------- 	$NC"
     echo
 
-    addport "CREATECOIN" "${coin^^}" "${coinalgo}"
+    addport "CREATECOIN" "${coinsymbol}" "${coinalgo}"
 
     ADDPORTCONF="$STORAGE_ROOT/daemon_builder/.addport.cnf"
 
@@ -1674,7 +1697,9 @@ if [[ ("$DAEMOND" != "true") ]]; then
         source "$ADDPORTCONF"
 
         print_success "Dedicated Stratum information loaded"
-        print_info "Coin           : ${coin^^}"
+        coinsymbol="${COINSYMBOL:-$coinsymbol}"
+        print_info "Coin name      : ${coin^^}"
+        print_info "Symbol         : ${coinsymbol}"
 
         if [[ -n "${COINALGO:-}" ]]; then
             print_info "Algorithm      : ${COINALGO}"
@@ -2077,7 +2102,8 @@ print_divider
 
 print_header "Coin Configuration"
 
-print_info "Symbol       : ${MAGENTA}${coin^^}${NC}"
+print_info "Coin Name    : ${MAGENTA}${coin^^}${NC}"
+print_info "Symbol       : ${MAGENTA}${coinsymbol}${NC}"
 
 if [[ -n "${COINALGO:-}" ]]; then
     print_info "Algorithm    : ${MAGENTA}${COINALGO}${NC}"
@@ -2147,21 +2173,21 @@ if [[ -n "${COINPORT:-}" || -n "${COINALGO:-}" ]]; then
         print_info "Binary       : ${MAGENTA}${STRATUMBINARY}${NC}"
     fi
 
-    if [[ -x "/usr/bin/stratum.${coin,,}" ]]; then
+    if [[ -x "/usr/bin/stratum.${coinsymbol,,}" ]]; then
         print_info "Start:"
-        echo -e "  ${BLUE}stratum.${coin,,} start ${coin,,}${NC}"
+        echo -e "  ${BLUE}stratum.${coinsymbol,,} start${NC}"
 
         print_info "Stop:"
-        echo -e "  ${BLUE}stratum.${coin,,} stop ${coin,,}${NC}"
+        echo -e "  ${BLUE}stratum.${coinsymbol,,} stop${NC}"
 
         print_info "Restart:"
-        echo -e "  ${BLUE}stratum.${coin,,} restart ${coin,,}${NC}"
+        echo -e "  ${BLUE}stratum.${coinsymbol,,} restart${NC}"
 
         print_info "Console:"
-        echo -e "  ${BLUE}screen -r ${coin,,}${NC}"
+        echo -e "  ${BLUE}screen -r ${coinsymbol,,}${NC}"
 
         print_info "Boot log:"
-        echo -e "  ${YELLOW}/var/log/stratum-${coin,,}-boot.log${NC}"
+        echo -e "  ${YELLOW}/var/log/stratum-${coinsymbol,,}-boot.log${NC}"
     fi
 
     print_divider

@@ -360,11 +360,17 @@ cd $STORAGE_ROOT/daemon_builder/temp_coin_builds
 print_header "Coin Configuration"
 
 input_box "Coin Information" \
-"Please enter the Coin Symbol. Example: BTC
+"Please enter the full canonical Coin Name used by the daemon.
+\n\nExample: Raptoreum
 \n\n*To paste, use Ctrl+Shift+V (or right-click in some terminals).
 \n\nCoin Name:" \
 "" \
 coin
+
+if [[ -z "${coin// }" ]]; then
+    print_error "Coin name cannot be empty"
+    exit 1
+fi
 
 if [[ ("${precompiled}" == "true") ]]; then
     input_box "Precompiled Binary Information" \

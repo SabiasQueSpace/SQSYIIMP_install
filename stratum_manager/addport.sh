@@ -2507,6 +2507,7 @@ register_autostart() {
 
 save_createcoin_result() {
     sudo tee "$STORAGE_ROOT/daemon_builder/.addport.cnf" >/dev/null <<EOF_RESULT
+COINSYMBOL='$coinsymbol'
 COINPORT='$coinport'
 COINALGO='$SELECTED_ALGO'
 STRATUMBINARY='$SELECTED_STRATUM_BINARY'

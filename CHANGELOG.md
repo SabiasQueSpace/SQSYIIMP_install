@@ -6,6 +6,8 @@ All notable changes to SQSYIIMP are documented in this file.
 
 ### Fixed
 
+- Separate the canonical coin name from the YiiMP coin symbol during daemon installation, so Stratum config files, launchers, logs and GNU Screen sessions use the ticker (for example `rtm`) instead of the full name (`raptoreum`).
+- Correct the daemon-builder coin prompts so the canonical wallet/daemon name and the Stratum symbol are no longer conflated.
 - Allow `runner.sh --resolve` to validate a generated Stratum configuration
   before its per-coin log is provisioned by `addport`.
 - Prevent the missing-log diagnostic from being followed by the misleading

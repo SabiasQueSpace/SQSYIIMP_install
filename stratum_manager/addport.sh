@@ -1356,16 +1356,16 @@ get_pool_coinbase_tag() {
     fi
 
     if [ "${#tag}" -ge 32 ]; then
-        print_warning "Pool name is too long for coinbaseextra; inherited config value will be kept"
+        print_warning "Pool name is too long for coinbaseextra; inherited config value will be kept" >&2
         return 1
     fi
 
-    if ! LC_ALL=C printf '%s' "$tag" | grep -qE '^[ -~]+$'; then
-        print_warning "Pool name contains non-printable ASCII characters; inherited config value will be kept"
+    if ! LC_ALL=C printf '%s' "$tag" | grep -qE '^[A-Za-z0-9._ -]+$'; then
+        print_warning "Pool name contains unsupported or non-printable characters; inherited config value will be kept" >&2
         return 1
     fi
 
-    printf '%s\n' "$tag"
+    printf '%s' "$tag"
 }
 
 binary_description() {
@@ -2252,9 +2252,10 @@ create_coin_config() {
     sqsyiimp_ensure_runtime_alias "$coin_config"
 
     local pool_coinbase_tag=""
-    pool_coinbase_tag=$(get_pool_coinbase_tag || true)
-    if [ -n "$pool_coinbase_tag" ]; then
+    if pool_coinbase_tag=$(get_pool_coinbase_tag); then
         upsert_simple_key "$coin_config" "STRATUM" "coinbaseextra" "$pool_coinbase_tag"
+    else
+        pool_coinbase_tag=""
     fi
 
     apply_marketplace_profiles "$coin_config"

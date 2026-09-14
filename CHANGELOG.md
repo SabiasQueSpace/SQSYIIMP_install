@@ -2,7 +2,7 @@
 
 All notable changes to SQSYIIMP are documented in this file.
 
-## Unreleased
+## v1.0.5 - 2026-09-14
 
 ### Added
 

@@ -90,6 +90,9 @@ components and pool infrastructure clearly separated.
 | `addport -a` | Short form for algorithm list |
 | `addport --update` | Check and start a SQSYIIMP update |
 | `addport -u` | Short form for SQSYIIMP update |
+| `removecoin COIN` | Dry-run a managed coin removal |
+| `removecoin COIN --apply` | Remove the managed Stratum for a coin |
+| `removecoin COIN --apply --purge-node` | Also remove the registered daemon/node and datadir |
 | `screens start` | Start all YiiMP service screens |
 | `screens stop` | Stop all YiiMP service screens |
 | `screens restart` | Restart all YiiMP service screens |
@@ -238,6 +241,51 @@ or:
 ```bash
 addport -u
 ```
+
+### Safe coin removal
+
+SQSYIIMP installs a dedicated removal manager:
+
+```bash
+removecoin COIN
+```
+
+The default is a dry-run and does not change the server. Apply the managed
+Stratum removal explicitly:
+
+```bash
+sudo removecoin COIN --apply
+```
+
+To also remove a coin-specific daemon, binaries and blockchain/wallet datadir,
+use `--purge-node`. This is intentionally destructive and requires an explicit
+confirmation:
+
+```bash
+sudo removecoin COSA --apply --purge-node --coin-name cosanta
+```
+
+Useful safety options:
+
+```bash
+removecoin COIN --check
+removecoin COIN --apply --purge-node --keep-wallet
+removecoin COIN --apply --purge-backups
+removecoin COIN --apply --purge-db
+```
+
+`--purge-db` only removes the `coins` row when no dependent `coinid` or
+`coin_id` rows remain. If historical rows exist, the operation refuses to
+delete the database entry.
+
+New and refreshed coins store non-secret management metadata in:
+
+```text
+/home/crypto-data/yiimp/site/stratum/managed/<coin>.conf
+```
+
+This lets SQSYIIMP remove exact registered paths instead of using broad
+wildcard deletion.
 
 ---
 
@@ -579,6 +627,7 @@ SQSYIIMP_install/
 │
 ├── stratum_manager/
 │   ├── addport.sh
+│   ├── removecoin.sh
 │   ├── runner.sh
 │   ├── install.sh
 │   └── install-runtime.sh

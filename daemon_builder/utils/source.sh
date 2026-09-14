@@ -2195,6 +2195,64 @@ fi
 
 
 # ============================================================
+# SQSYIIMP - PERSIST MANAGED COIN METADATA
+# ============================================================
+#
+# Keep non-secret removal metadata so `removecoin` can later remove exactly
+# the files that belong to this coin without guessing from broad wildcards.
+# Existing Stratum metadata written by addport is preserved.
+#
+if [[ "${YIIMPCONF:-false}" == "true" && -n "${coinsymbol:-}" && -n "${coin:-}" ]]; then
+    SQSYIIMP_MANAGED_DIR="$STORAGE_ROOT/yiimp/site/stratum/managed"
+    SQSYIIMP_MANAGED_FILE="$SQSYIIMP_MANAGED_DIR/${coinsymbol,,}.conf"
+    SQSYIIMP_MANAGED_TMP="$(mktemp)"
+
+    sudo mkdir -p "$SQSYIIMP_MANAGED_DIR"
+
+    if [[ -r "$SQSYIIMP_MANAGED_FILE" ]]; then
+        grep -E '^(FORMAT|SYMBOL|WALLET_SYMBOL|ID|ALGO|PORT|STRATUM_BINARY|STRATUM_CONFIG|STRATUM_SERVICE|STRATUM_WRAPPER|STRATUM_LOG|STRATUM_BOOT_LOG)=' \
+            "$SQSYIIMP_MANAGED_FILE" > "$SQSYIIMP_MANAGED_TMP" || true
+    else
+        cat > "$SQSYIIMP_MANAGED_TMP" <<EOF_MANAGED_BASE
+FORMAT=1
+SYMBOL=${coinsymbol^^}
+WALLET_SYMBOL=${coinsymbol^^}
+ID=${coinsymbol,,}
+EOF_MANAGED_BASE
+    fi
+
+    if [[ -z "${DAEMON_DATADIR:-}" ]]; then
+        DAEMON_DATADIR="$STORAGE_ROOT/wallets/.${coin,,}"
+    fi
+
+    if [[ -z "${DAEMON_BOOT_LOG:-}" ]]; then
+        DAEMON_BOOT_LOG="/var/log/${coin,,}-daemon-boot.log"
+    fi
+
+    cat >> "$SQSYIIMP_MANAGED_TMP" <<EOF_MANAGED_DAEMON
+COIN_NAME=${coin,,}
+DAEMON_BINARY=${coind:-}
+CLI_BINARY=${coincli:-}
+TX_BINARY=${cointx:-}
+UTIL_BINARY=${coinutil:-}
+HASH_BINARY=${coinhash:-}
+WALLET_BINARY=${coinwallet:-}
+QT_BINARY=${coinqt:-}
+DAEMON_DATADIR=${DAEMON_DATADIR}
+DAEMON_CONF=${coin,,}.conf
+DAEMON_BOOT_LOG=${DAEMON_BOOT_LOG}
+EOF_MANAGED_DAEMON
+
+    sudo install -o root -g root -m 0644 \
+        "$SQSYIIMP_MANAGED_TMP" \
+        "$SQSYIIMP_MANAGED_FILE"
+    rm -f "$SQSYIIMP_MANAGED_TMP"
+
+    print_info "Managed coin metadata: ${SQSYIIMP_MANAGED_FILE}"
+fi
+
+
+# ============================================================
 # CLEANUP - ONLY AFTER ALL INFORMATION HAS BEEN USED
 # ============================================================
 

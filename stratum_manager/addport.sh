@@ -1127,6 +1127,7 @@ WRAPPER
 
 CONFIG_DIR="$STRATUM_DIR/config"
 SERVICE_DIR="$STRATUM_DIR/services"
+MANAGED_DIR="$STRATUM_DIR/managed"
 RUNNER="$STRATUM_DIR/runner.sh"
 DEFAULT_STRATUM_BINARY="stratum"
 
@@ -1144,7 +1145,7 @@ fatal() {
 ensure_layout() {
     [ -d "$STRATUM_DIR" ] || fatal "Stratum directory not found: $STRATUM_DIR"
     [ -d "$CONFIG_DIR" ] || fatal "Stratum config directory not found: $CONFIG_DIR"
-    sudo mkdir -p "$SERVICE_DIR"
+    sudo mkdir -p "$SERVICE_DIR" "$MANAGED_DIR"
 }
 
 find_open_port() {
@@ -2506,6 +2507,37 @@ register_autostart() {
 }
 
 
+save_managed_coin_metadata() {
+    local metadata_file="$MANAGED_DIR/${coinsymbollower}.conf"
+    local tmp=""
+
+    sudo mkdir -p "$MANAGED_DIR"
+    tmp="$(mktemp)"
+
+    cat > "$tmp" <<EOF_METADATA
+FORMAT=1
+SYMBOL=$coinsymbol
+WALLET_SYMBOL=$coinsymbol
+ID=$coinsymbollower
+ALGO=$SELECTED_ALGO
+PORT=$coinport
+STRATUM_BINARY=$SELECTED_STRATUM_BINARY
+STRATUM_CONFIG=${CONFIG_PATH##*/}
+STRATUM_SERVICE=$SERVICE_DIR/${coinsymbollower}.sh
+STRATUM_WRAPPER=/usr/bin/stratum.${coinsymbollower}
+STRATUM_LOG=/var/log/stratum-${coinsymbollower}.log
+STRATUM_BOOT_LOG=/var/log/stratum-${coinsymbollower}-boot.log
+EOF_METADATA
+
+    # Preserve daemon metadata previously written by DaemonBuilder.
+    if [[ -r "$metadata_file" ]]; then
+        grep -E '^(WALLET_SYMBOL|COIN_NAME|DAEMON_BINARY|CLI_BINARY|TX_BINARY|UTIL_BINARY|HASH_BINARY|WALLET_BINARY|QT_BINARY|DAEMON_DATADIR|DAEMON_CONF|DAEMON_BOOT_LOG)='             "$metadata_file" >> "$tmp" || true
+    fi
+
+    sudo install -o root -g root -m 0644 "$tmp" "$metadata_file"
+    rm -f "$tmp"
+}
+
 save_createcoin_result() {
     sudo tee "$STORAGE_ROOT/daemon_builder/.addport.cnf" >/dev/null <<EOF_RESULT
 COINSYMBOL='$coinsymbol'
@@ -2724,6 +2756,8 @@ EOF_HELP
     else
         print_warning "Stratum service could not be started automatically; the config and service command were still created"
     fi
+
+    save_managed_coin_metadata
 
     if [ "$CREATECOIN" = true ]; then
         save_createcoin_result

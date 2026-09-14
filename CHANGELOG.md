@@ -4,6 +4,14 @@ All notable changes to SQSYIIMP are documented in this file.
 
 ## Unreleased
 
+### Added
+
+- Add a safe `removecoin` manager with dry-run by default, exact managed Stratum cleanup, autostart/UFW cleanup, optional daemon/datadir purge, optional backup purge, and conservative YiiMP DB removal that refuses to delete coins with dependent rows.
+- Persist non-secret per-coin management metadata under `site/stratum/managed/` so Stratum Manager and DaemonBuilder can remove registered paths without broad wildcard deletion.
+- Show live elapsed-time progress while stopping coin daemons, allow a longer clean shutdown window before TERM, and keep refusing destructive node removal while an exact daemon process is still alive.
+- Add explicit `--purge-db-data` removal for dependent YiiMP rows with automatic SQL backup, non-zero balance protection and a second destructive confirmation.
+- Add `--wallet-symbol` so Stratum include/exclude symbols can differ safely from the YiiMP DB ticker during removal.
+
 ### Fixed
 
 - Separate the canonical coin name from the YiiMP coin symbol during daemon installation, so Stratum config files, launchers, logs and GNU Screen sessions use the ticker (for example `rtm`) instead of the full name (`raptoreum`).
@@ -12,6 +20,8 @@ All notable changes to SQSYIIMP are documented in this file.
   before its per-coin log is provisioned by `addport`.
 - Prevent the missing-log diagnostic from being followed by the misleading
   `Generated config could not resolve its selected Stratum binary` error.
+- Make `removecoin --check` print an apply command that preserves the requested purge options instead of always suggesting Stratum-only removal.
+- Clean exact wallet `exclude = SYMBOL` lines on removal even when the dedicated Stratum config was already removed and the algorithm can no longer be resolved.
 
 ## v1.0.2 - 2026-09-01
 

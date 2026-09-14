@@ -66,9 +66,12 @@ sudo removecoin COSA --apply --purge-node --coin-name cosanta
 ```
 
 The node purge may remove the daemon datadir and wallet. Use `--keep-wallet`
-to preserve the datadir. `--purge-backups` is separate. `--purge-db` remains
-conservative and refuses to delete the YiiMP coin row while dependent database
-rows exist. If the operator explicitly wants to remove those rows too, use
+to preserve the datadir. `--purge-backups` is separate: the plan lists every
+exact matching path, each size, the total count and total size before confirmation,
+and apply mode removes only those planned paths. Automatic DB safety backups under
+`yiimp/backups/removecoin-db/` are protected. `--purge-db` remains conservative
+and refuses to delete the YiiMP coin row while dependent database rows exist.
+If the operator explicitly wants to remove those rows too, use
 `--purge-db-data`: SQSYIIMP first creates an automatic SQL row backup under
 `yiimp/backups/removecoin-db/`, refuses non-zero account/market balances, and
 requires a second `PURGE SYMBOL` confirmation before deleting dependent rows.

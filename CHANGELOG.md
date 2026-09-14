@@ -2,6 +2,12 @@
 
 All notable changes to SQSYIIMP are documented in this file.
 
+## Unreleased
+
+### Added
+
+- Preview the exact backup paths, per-path sizes, total count and total size selected by `removecoin --purge-backups` before confirmation; apply mode removes only those planned paths and protects automatic `removecoin-db` safety backups.
+
 ## v1.0.5 - 2026-09-14
 
 ### Added

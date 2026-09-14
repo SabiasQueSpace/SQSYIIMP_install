@@ -37,6 +37,7 @@ PURGE_BACKUPS=false
 PURGE_DB=false
 PURGE_DB_DATA=false
 ASSUME_YES=false
+BACKUP_CANDIDATES=()
 
 # Daemon shutdown safety/UX. These may be overridden through the environment.
 DAEMON_RPC_TIMEOUT="${SQS_REMOVE_DAEMON_RPC_TIMEOUT:-20}"
@@ -65,7 +66,7 @@ Options:
   --apply                Apply the planned Stratum removal
   --purge-node           Also remove the coin daemon, binaries and datadir
   --keep-wallet          With --purge-node, keep the daemon datadir/wallet
-  --purge-backups        Remove matching SQSYIIMP/Stratum backups
+  --purge-backups        Preview and remove matching SQSYIIMP/Stratum backups
   --purge-db             Delete the YiiMP coins row only if no dependent
                          coinid/coin_id rows exist; otherwise refuse safely
   --purge-db-data        With --purge-db, back up and delete dependent YiiMP
@@ -102,6 +103,7 @@ Examples:
 Safety rules:
   * Unknown processes are never killed merely because they own a port.
   * Daemon purge is limited to explicitly resolved coin-specific binaries.
+  * --purge-backups removes only the exact paths shown in the removal plan.
   * --purge-db alone refuses to continue while dependent rows exist.
   * --purge-db-data creates a SQL backup first and refuses non-zero account/market balances.
 EOF_USAGE
@@ -808,57 +810,150 @@ purge_db_safely() {
     info "YiiMP DB coin row removed: $YIIMP_SYMBOL_UPPER (id=$coin_id)"
 }
 
-remove_backups() {
+backup_token_match() {
+    local value="${1:-}"
+    local token="${2:-}"
+
+    [[ -n "$token" ]] || return 1
+
+    value="${value,,}"
+    token="${token,,}"
+    value="${value//./-}"
+    value="${value//_/-}"
+    token="${token//./-}"
+    token="${token//_/-}"
+
+    [[ "-$value-" == *-"$token"-* ]]
+}
+
+backup_name_matches_coin() {
+    local lower="${1,,}"
+
+    backup_token_match "$lower" "$SYMBOL_LOWER" ||
+        backup_token_match "$lower" "$COIN_NAME" ||
+        backup_token_match "$lower" "${YIIMP_SYMBOL_UPPER,,}" ||
+        backup_token_match "$lower" "${WALLET_SYMBOL_UPPER,,}"
+}
+
+collect_backup_candidates() {
     local path=""
     local base=""
     local lower=""
-    local normalized=""
     local backup_root="$STORAGE_ROOT/yiimp/backups"
+    local protected_db_backup="$backup_root/removecoin-db"
 
-    has_token() {
-        local value="$1"
-        local token="$2"
-        [[ -n "$token" ]] || return 1
-        value="${value//./-}"
-        value="${value//_/-}"
-        [[ "-$value-" == *-"$token"-* ]]
-    }
-
-    while IFS= read -r -d '' path; do
-        base="${path##*/}"
-        lower="${base,,}"
-
-        case "$lower" in
-            *backup*|*.bak|*.bak-*|*.old|*.old-*|*.orig|*.orig-*) ;;
-            *) continue ;;
-        esac
-
-        if has_token "$lower" "$SYMBOL_LOWER" || has_token "$lower" "$COIN_NAME"; then
-            info "Removing backup: $path"
-            sudo rm -rf -- "$path"
-        fi
-    done < <(
-        find "$CONFIG_DIR" "$SERVICE_DIR" \
-            -maxdepth 1 \
-            -mindepth 1 \
-            -print0 2>/dev/null || true
-    )
-
-    if [[ -d "$backup_root" ]]; then
+    {
         while IFS= read -r -d '' path; do
             base="${path##*/}"
             lower="${base,,}"
 
-            if has_token "$lower" "$SYMBOL_LOWER" || has_token "$lower" "$COIN_NAME"; then
-                info "Removing SQSYIIMP backup: $path"
-                sudo rm -rf -- "$path"
+            case "$lower" in
+                *backup*|*.bak|*.bak-*|*.old|*.old-*|*.orig|*.orig-*) ;;
+                *) continue ;;
+            esac
+
+            if backup_name_matches_coin "$lower"; then
+                printf '%s\0' "$path"
             fi
         done < <(
-            find "$backup_root" \
+            find "$CONFIG_DIR" "$SERVICE_DIR" \
                 -maxdepth 1 \
                 -mindepth 1 \
                 -print0 2>/dev/null || true
         )
+
+        if [[ -d "$backup_root" ]]; then
+            while IFS= read -r -d '' path; do
+                [[ "$path" == "$protected_db_backup" ]] && continue
+
+                base="${path##*/}"
+                lower="${base,,}"
+
+                if backup_name_matches_coin "$lower"; then
+                    printf '%s\0' "$path"
+                fi
+            done < <(
+                find "$backup_root" \
+                    -maxdepth 1 \
+                    -mindepth 1 \
+                    -print0 2>/dev/null || true
+            )
+        fi
+    } | sort -zu
+}
+
+load_backup_candidates() {
+    local path=""
+    BACKUP_CANDIDATES=()
+
+    while IFS= read -r -d '' path; do
+        BACKUP_CANDIDATES+=("$path")
+    done < <(collect_backup_candidates)
+}
+
+backup_path_size_bytes() {
+    local path="$1"
+    local bytes=""
+
+    bytes="$(du -sb -- "$path" 2>/dev/null | awk 'NR==1 {print $1}' || true)"
+    if [[ "$bytes" =~ ^[0-9]+$ ]]; then
+        printf '%s' "$bytes"
+    else
+        printf '0'
+    fi
+}
+
+format_bytes() {
+    local bytes="${1:-0}"
+
+    if command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec-i --suffix=B "$bytes" 2>/dev/null || printf '%sB' "$bytes"
+    else
+        printf '%sB' "$bytes"
+    fi
+}
+
+preview_backup_candidates() {
+    local path=""
+    local bytes=0
+    local total_bytes=0
+    local size=""
+
+    log "Backup matches  : ${#BACKUP_CANDIDATES[@]}"
+
+    if ((${#BACKUP_CANDIDATES[@]} == 0)); then
+        log "Backup size     : 0B"
+        return 0
+    fi
+
+    log "Backup candidates:"
+    for path in "${BACKUP_CANDIDATES[@]}"; do
+        bytes="$(backup_path_size_bytes "$path")"
+        total_bytes=$((total_bytes + bytes))
+        size="$(format_bytes "$bytes")"
+        printf '  %-9s %s\n' "[$size]" "$path"
+    done
+
+    log "Backup size     : $(format_bytes "$total_bytes")"
+    log "DB safety backup: $STORAGE_ROOT/yiimp/backups/removecoin-db/ (protected)"
+}
+
+remove_backups() {
+    local path=""
+    local removed=0
+
+    for path in "${BACKUP_CANDIDATES[@]}"; do
+        if [[ -e "$path" || -L "$path" ]]; then
+            info "Removing backup: $path"
+            sudo rm -rf -- "$path"
+            removed=$((removed + 1))
+        fi
+    done
+
+    if ((removed == 0)); then
+        info "No matching backups were present at apply time"
+    else
+        info "Removed $removed planned backup path(s)"
     fi
 }
 
@@ -1075,6 +1170,10 @@ if [[ "$PURGE_NODE" == true ]]; then
     log "Shutdown wait   : ${DAEMON_STOP_TIMEOUT}s graceful + ${DAEMON_TERM_TIMEOUT}s after TERM"
 fi
 log "Purge backups   : $PURGE_BACKUPS"
+if [[ "$PURGE_BACKUPS" == true ]]; then
+    load_backup_candidates
+    preview_backup_candidates
+fi
 log "Purge DB        : $PURGE_DB"
 log "Purge DB data   : $PURGE_DB_DATA"
 if [[ "$PURGE_DB" == true ]]; then

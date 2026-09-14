@@ -270,9 +270,12 @@ Useful safety options:
 ```bash
 removecoin COIN --check
 removecoin COIN --apply --purge-node --keep-wallet
+removecoin COIN --check --purge-backups
 removecoin COIN --apply --purge-backups
 removecoin COIN --apply --purge-db
 ```
+
+`--purge-backups` previews every exact path it plans to remove, including per-path size, total count and total size. Apply mode deletes only those paths that were shown in the plan. Automatic database safety backups under `yiimp/backups/removecoin-db/` are protected from this purge.
 
 `--purge-db` only removes the `coins` row when no dependent `coinid` or
 `coin_id` rows remain. If historical rows exist, the operation refuses to

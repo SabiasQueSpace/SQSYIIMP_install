@@ -24,17 +24,8 @@ Useful shortcuts:
 addport --stratums
 addport --algos
 addport GAEL kawpow stratum-kawpow
-addport VBC ethash stratum-kp
 removecoin GAEL
 ```
-
-SQSYIIMP also installs an `ethash.conf` base template and a dedicated
-`vbc.ethash.conf` when they are not already present. Both inherit the configured
-pool/SQL credentials from `.yiimp.conf`. The VBC config uses TCP port `6453`,
-initial difficulty `0.1`, `diff_min = 0.05`, `diff_max = 8192`,
-`max_ttf = 50000`, and `include = VBC`; the base template remains coin-neutral so
-future Ethash coins can be created safely with `addport`. Existing administrator
-configurations are never overwritten.
 
 Each dedicated coin config stores the selected runtime executable:
 

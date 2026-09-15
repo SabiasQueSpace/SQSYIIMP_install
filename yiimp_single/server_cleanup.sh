@@ -171,7 +171,6 @@ screen -dmS blake2s bash $STRATUM_DIR/run.sh blake2s
 screen -dmS blakecoin bash $STRATUM_DIR/run.sh blakecoin
 screen -dmS bmw512 bash $STRATUM_DIR/run.sh bmw512
 screen -dmS c11 bash $STRATUM_DIR/run.sh c11
-screen -dmS cosa bash $STRATUM_DIR/run.sh cosa
 screen -dmS cpupower bash $STRATUM_DIR/run.sh cpupower
 screen -dmS curvehash bash $STRATUM_DIR/run.sh curvehash
 screen -dmS decred bash $STRATUM_DIR/run.sh decred

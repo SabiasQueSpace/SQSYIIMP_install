@@ -59,7 +59,6 @@ services=(
     "zr5|zr5stop"
     "blake|blakestop"
     "blakecoin|blakecoinstop"
-    "cosa|cosastop"
     "decred|decredstop"
     "vanilla|vanillastop"
     "blake2s|blake2sstop"

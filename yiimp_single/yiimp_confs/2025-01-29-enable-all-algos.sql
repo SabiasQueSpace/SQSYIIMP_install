@@ -15,7 +15,6 @@ INSERT INTO `algos` (`name`, `color`, `speedfactor`, `port`, `visible`, `powlimi
 ('bcd', '#ffd880', 1, 3643, 1, NULL),
 ('bitcore', '#f790c0', 1, 3556, 1, NULL),
 ('blakecoin', '#f0f0f0', 0.001, 5743, 1, NULL),
-('cosa', '#a0a0d0', 1, 3574, 1, NULL),
 ('cpupower', '#e2d0d2', 1, 4250, 1, NULL),
 ('curvehash', '#d0a0a0', 1, 3343, 1, NULL),
 ('dedal', '#f0f0f0', 1, 8833, 1, NULL),

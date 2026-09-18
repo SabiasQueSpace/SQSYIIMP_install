@@ -43,14 +43,16 @@ ETHASH_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/ethash.conf"
 
 install_ethash_templates() {
     local base_target="$STRATUM_DIR/config/ethash.conf"
+    local etchash_target="$STRATUM_DIR/config/etchash.conf"
     local vbc_target="$STRATUM_DIR/config/vbc.ethash.conf"
     local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
     local db_host="localhost"
     local rendered=""
     local base_rendered=""
+    local etchash_rendered=""
 
-    if [[ -f "$base_target" && -f "$vbc_target" ]]; then
-        echo "Ethash Stratum templates already exist; preserving administrator configuration"
+    if [[ -f "$base_target" && -f "$etchash_target" && -f "$vbc_target" ]]; then
+        echo "Ethash/Etchash Stratum templates already exist; preserving administrator configuration"
         return 0
     fi
 
@@ -76,6 +78,7 @@ install_ethash_templates() {
 
     rendered="$(mktemp)"
     base_rendered="$(mktemp)"
+    etchash_rendered="$(mktemp)"
     cp "$ETHASH_TEMPLATE_SOURCE" "$rendered"
 
     STRATUM_URL="$StratumURL" \
@@ -144,6 +147,23 @@ PY_RENDER_ETHASH
         echo "Ethash base template already exists; preserving: $base_target"
     fi
 
+
+    sed -E \
+        's/^[[:space:]]*algo[[:space:]]*=.*/algo = etchash/' \
+        "$base_rendered" > "$etchash_rendered"
+
+    if [[ ! -f "$etchash_target" ]]; then
+        sudo install \
+            -o "$STORAGE_USER" \
+            -g "$STORAGE_GROUP" \
+            -m 0640 \
+            "$etchash_rendered" \
+            "$etchash_target"
+        echo "Etchash base algorithm template installed: $etchash_target"
+    else
+        echo "Etchash base template already exists; preserving: $etchash_target"
+    fi
+
     if [[ ! -f "$vbc_target" ]]; then
         sudo install \
             -o "$STORAGE_USER" \
@@ -156,7 +176,7 @@ PY_RENDER_ETHASH
         echo "VBC Ethash config already exists; preserving: $vbc_target"
     fi
 
-    rm -f "$rendered" "$base_rendered"
+    rm -f "$rendered" "$base_rendered" "$etchash_rendered"
 }
 
 sudo install -d \

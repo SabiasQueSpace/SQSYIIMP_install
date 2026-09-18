@@ -288,7 +288,8 @@ function daemonbuiler_files {
                 upgrade.sh \
                 menu.sh \
                 menu2.sh \
-                menu3.sh
+                menu3.sh \
+                ethash.sh
         do
                 if [[ ! -f "$daemonbuilder_target/$required_file" ]]; then
                         echo -e "${RED}ERROR: Missing installed DaemonBuilder file:${NC}"
@@ -312,6 +313,11 @@ function daemonbuiler_files {
 
         if ! bash -n "$daemonbuilder_target/upgrade.sh"; then
                 echo -e "${RED}ERROR: Invalid syntax in installed upgrade.sh${NC}"
+                return 1
+        fi
+
+        if ! bash -n "$daemonbuilder_target/ethash.sh"; then
+                echo -e "${RED}ERROR: Invalid syntax in installed ethash.sh${NC}"
                 return 1
         fi
 

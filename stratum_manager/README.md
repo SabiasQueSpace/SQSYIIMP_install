@@ -25,16 +25,18 @@ addport --stratums
 addport --algos
 addport GAEL kawpow stratum-kawpow
 addport VBC ethash stratum-kp
+addport ETC etchash stratum-kp
 removecoin GAEL
 ```
 
-SQSYIIMP also installs an `ethash.conf` base template and a dedicated
-`vbc.ethash.conf` when they are not already present. Both inherit the configured
+SQSYIIMP also installs coin-neutral `ethash.conf` and `etchash.conf` base
+templates plus a dedicated `vbc.ethash.conf` when they are not already present. Both inherit the configured
 pool/SQL credentials from `.yiimp.conf`. The VBC config uses TCP port `6453`,
 initial difficulty `0.1`, `diff_min = 0.05`, `diff_max = 8192`,
 `max_ttf = 50000`, and `include = VBC`; the base template remains coin-neutral so
-future Ethash coins can be created safely with `addport`. Existing administrator
-configurations are never overwritten.
+future Ethash/Etchash coins can be created safely with `addport`. `addport`
+can also bootstrap the two base templates from the existing SQSYIIMP credentials
+when they are missing. Existing administrator configurations are never overwritten.
 
 Each dedicated coin config stores the selected runtime executable:
 
@@ -96,7 +98,10 @@ SIGKILL automatically. The waits can be overridden with
 
 SQSYIIMP stores non-secret per-coin management metadata in
 `site/stratum/managed/<coin>.conf`. DaemonBuilder augments the same file with
-the canonical daemon name, binaries, datadir and daemon config.
+the canonical daemon name, binaries, datadir and daemon config. Geth/Core-Geth
+compatible Ethash/Etchash nodes are registered as `NODE_TYPE=evm`, including
+their systemd service, local JSON-RPC endpoint and P2P port so `removecoin
+--purge-node` can remove them without applying Bitcoin-style daemon flags.
 
 ## Source files
 

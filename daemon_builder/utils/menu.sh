@@ -129,13 +129,14 @@ RESULT=$(
         --backtitle "MegaHashPool - SQSYIIMP" \
         --title "DaemonBuilder ${SQSYIIMP_VERSION:-v1.0.0}" \
         --menu "$MENU_INFO" \
-        22 72 8 \
+        24 76 10 \
         ' ' "═══════════  Daemon Builder ═══════════" \
-        1 "Build Coin Daemon From Source Code" \
-        2 "Update Coin Daemon From Source Code" \
+        1 "Build UTXO Coin Daemon From Source Code" \
+        2 "Update UTXO Coin Daemon From Source Code" \
+        3 "Install Ethash / Etchash EVM Coin Node" \
         ' ' "───────────────────────────────────────" \
-        3 "$UPDATE_MENU_LABEL" \
-        4 "Exit DaemonBuilder"
+        4 "$UPDATE_MENU_LABEL" \
+        5 "Exit DaemonBuilder"
 )
 
 DIALOG_RC=$?
@@ -163,6 +164,12 @@ case "$RESULT" in
         ;;
 
     3)
+        clear
+        cd "$STORAGE_ROOT/daemon_builder" || exit 1
+        bash ethash.sh
+        ;;
+
+    4)
         UPDATE_TEXT="SQSYIIMP / DaemonBuilder
 
 Installed version:
@@ -218,7 +225,7 @@ SQSYIIMP is up to date."
         exec bash "$STORAGE_ROOT/daemon_builder/start.sh"
         ;;
 
-    4)
+    5)
         clear
         echo -e "$CYAN ------------------------------------------------------------------------------- $NC"
         echo -e "$YELLOW You have chosen to exit the Daemon Builder.$NC"

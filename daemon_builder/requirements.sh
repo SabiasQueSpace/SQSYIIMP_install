@@ -39,6 +39,10 @@ hide_output sudo apt-get -y upgrade
 print_status "Installing all required packages..."
 DAEMONBUILDER_PACKAGES=(
     "build-essential"
+    "curl"
+    "unzip"
+    "python3"
+    "zstd"
     "cmake"
     "ccache"
     "pkg-config"

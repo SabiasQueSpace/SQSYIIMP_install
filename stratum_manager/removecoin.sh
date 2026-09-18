@@ -1102,6 +1102,8 @@ fi
 COIN_NAME="${COIN_NAME_OVERRIDE:-$(metadata_get "$METADATA_FILE" COIN_NAME)}"
 COIN_NAME="$(normalize_name "$COIN_NAME")"
 
+NODE_TYPE="$(metadata_get "$METADATA_FILE" NODE_TYPE)"
+NODE_TYPE="${NODE_TYPE:-utxo}"
 DAEMON_BINARY="${DAEMON_OVERRIDE:-$(metadata_get "$METADATA_FILE" DAEMON_BINARY)}"
 CLI_BINARY="${CLI_OVERRIDE:-$(metadata_get "$METADATA_FILE" CLI_BINARY)}"
 TX_BINARY="$(metadata_get "$METADATA_FILE" TX_BINARY)"
@@ -1112,29 +1114,56 @@ QT_BINARY="$(metadata_get "$METADATA_FILE" QT_BINARY)"
 DAEMON_DATADIR="${DATADIR_OVERRIDE:-$(metadata_get "$METADATA_FILE" DAEMON_DATADIR)}"
 DAEMON_CONF="${DAEMON_CONF_OVERRIDE:-$(metadata_get "$METADATA_FILE" DAEMON_CONF)}"
 DAEMON_BOOT_LOG="$(metadata_get "$METADATA_FILE" DAEMON_BOOT_LOG)"
+DAEMON_SERVICE="$(metadata_get "$METADATA_FILE" DAEMON_SERVICE)"
+DAEMON_SERVICE_FILE="$(metadata_get "$METADATA_FILE" DAEMON_SERVICE_FILE)"
+DAEMON_RUNNER="$(metadata_get "$METADATA_FILE" DAEMON_RUNNER)"
+DAEMON_RPC_PORT="$(metadata_get "$METADATA_FILE" DAEMON_RPC_PORT)"
+DAEMON_RPC_URL="$(metadata_get "$METADATA_FILE" DAEMON_RPC_URL)"
+DAEMON_P2P_PORT="$(metadata_get "$METADATA_FILE" DAEMON_P2P_PORT)"
+RPC_HELPER_BINARY="$(metadata_get "$METADATA_FILE" RPC_HELPER_BINARY)"
 
 if [[ "$PURGE_NODE" == true ]]; then
     if [[ -z "$COIN_NAME" ]]; then
         fatal "--purge-node requires managed daemon metadata or --coin-name NAME"
     fi
 
-    DAEMON_BINARY="${DAEMON_BINARY:-${COIN_NAME}d}"
-    CLI_BINARY="${CLI_BINARY:-${COIN_NAME}-cli}"
-    TX_BINARY="${TX_BINARY:-${COIN_NAME}-tx}"
-    UTIL_BINARY="${UTIL_BINARY:-${COIN_NAME}-util}"
-    HASH_BINARY="${HASH_BINARY:-${COIN_NAME}-hash}"
-    WALLET_BINARY="${WALLET_BINARY:-${COIN_NAME}-wallet}"
-    QT_BINARY="${QT_BINARY:-${COIN_NAME}-qt}"
-    DAEMON_DATADIR="${DAEMON_DATADIR:-$STORAGE_ROOT/wallets/.${COIN_NAME}}"
-    DAEMON_CONF="${DAEMON_CONF:-${COIN_NAME}.conf}"
-    DAEMON_BOOT_LOG="${DAEMON_BOOT_LOG:-/var/log/${COIN_NAME}-daemon-boot.log}"
+    if [[ "$NODE_TYPE" == "evm" ]]; then
+        [[ -n "$DAEMON_BINARY" ]] || fatal "EVM node metadata is missing DAEMON_BINARY"
+        valid_token "$DAEMON_BINARY" || fatal "Unsafe daemon binary name: $DAEMON_BINARY"
+        [[ -z "$RPC_HELPER_BINARY" ]] || valid_token "$RPC_HELPER_BINARY" || fatal "Unsafe RPC helper name: $RPC_HELPER_BINARY"
+        [[ -n "$DAEMON_DATADIR" && "$DAEMON_DATADIR" == /* ]] || fatal "EVM daemon datadir must be an absolute path"
+        [[ -n "$DAEMON_SERVICE" ]] || fatal "EVM node metadata is missing DAEMON_SERVICE"
+        [[ "$DAEMON_SERVICE" =~ ^[A-Za-z0-9@._-]+\.service$ ]] || fatal "Unsafe systemd service name: $DAEMON_SERVICE"
+        [[ -n "$DAEMON_SERVICE_FILE" ]] || DAEMON_SERVICE_FILE="/etc/systemd/system/$DAEMON_SERVICE"
+        case "$DAEMON_SERVICE_FILE" in
+            /etc/systemd/system/sqsyiimp-*.service) ;;
+            *) fatal "Refusing unsafe EVM service path: $DAEMON_SERVICE_FILE" ;;
+        esac
+        if [[ -n "$DAEMON_RUNNER" ]]; then
+            case "$DAEMON_RUNNER" in
+                /usr/local/lib/sqsyiimp/*) ;;
+                *) fatal "Refusing unsafe EVM runner path: $DAEMON_RUNNER" ;;
+            esac
+        fi
+    else
+        DAEMON_BINARY="${DAEMON_BINARY:-${COIN_NAME}d}"
+        CLI_BINARY="${CLI_BINARY:-${COIN_NAME}-cli}"
+        TX_BINARY="${TX_BINARY:-${COIN_NAME}-tx}"
+        UTIL_BINARY="${UTIL_BINARY:-${COIN_NAME}-util}"
+        HASH_BINARY="${HASH_BINARY:-${COIN_NAME}-hash}"
+        WALLET_BINARY="${WALLET_BINARY:-${COIN_NAME}-wallet}"
+        QT_BINARY="${QT_BINARY:-${COIN_NAME}-qt}"
+        DAEMON_DATADIR="${DAEMON_DATADIR:-$STORAGE_ROOT/wallets/.${COIN_NAME}}"
+        DAEMON_CONF="${DAEMON_CONF:-${COIN_NAME}.conf}"
+        DAEMON_BOOT_LOG="${DAEMON_BOOT_LOG:-/var/log/${COIN_NAME}-daemon-boot.log}"
 
-    for binary_name in "$DAEMON_BINARY" "$CLI_BINARY" "$TX_BINARY" "$UTIL_BINARY" "$HASH_BINARY" "$WALLET_BINARY" "$QT_BINARY"; do
-        [[ -z "$binary_name" ]] || valid_token "$binary_name" || fatal "Unsafe binary name: $binary_name"
-    done
+        for binary_name in "$DAEMON_BINARY" "$CLI_BINARY" "$TX_BINARY" "$UTIL_BINARY" "$HASH_BINARY" "$WALLET_BINARY" "$QT_BINARY"; do
+            [[ -z "$binary_name" ]] || valid_token "$binary_name" || fatal "Unsafe binary name: $binary_name"
+        done
 
-    [[ "$DAEMON_DATADIR" == /* ]] || fatal "Daemon datadir must be an absolute path"
-    valid_token "$DAEMON_CONF" || fatal "Unsafe daemon config name: $DAEMON_CONF"
+        [[ "$DAEMON_DATADIR" == /* ]] || fatal "Daemon datadir must be an absolute path"
+        valid_token "$DAEMON_CONF" || fatal "Unsafe daemon config name: $DAEMON_CONF"
+    fi
 fi
 
 # ------------------------------------------------------------
@@ -1162,12 +1191,19 @@ log ""
 log "Purge node      : $PURGE_NODE"
 if [[ "$PURGE_NODE" == true ]]; then
     log "Coin name       : $COIN_NAME"
+    log "Node type       : $NODE_TYPE"
     log "Daemon          : /usr/bin/$DAEMON_BINARY"
-    log "CLI             : /usr/bin/$CLI_BINARY"
+    if [[ "$NODE_TYPE" == "evm" ]]; then
+        log "Service         : ${DAEMON_SERVICE:-unknown}"
+        log "RPC             : ${DAEMON_RPC_URL:-unknown}"
+        log "P2P port        : ${DAEMON_P2P_PORT:-unknown}"
+    else
+        log "CLI             : /usr/bin/$CLI_BINARY"
+        log "Daemon conf     : $DAEMON_CONF"
+        log "Shutdown wait   : ${DAEMON_STOP_TIMEOUT}s graceful + ${DAEMON_TERM_TIMEOUT}s after TERM"
+    fi
     log "Datadir         : $DAEMON_DATADIR"
-    log "Daemon conf     : $DAEMON_CONF"
     log "Keep wallet     : $KEEP_WALLET"
-    log "Shutdown wait   : ${DAEMON_STOP_TIMEOUT}s graceful + ${DAEMON_TERM_TIMEOUT}s after TERM"
 fi
 log "Purge backups   : $PURGE_BACKUPS"
 if [[ "$PURGE_BACKUPS" == true ]]; then
@@ -1298,41 +1334,71 @@ sudo rm -f -- \
 # ------------------------------------------------------------
 
 if [[ "$PURGE_NODE" == true ]]; then
-    DAEMON_PATH="/usr/bin/$DAEMON_BINARY"
-    CLI_PATH="/usr/bin/$CLI_BINARY"
+    if [[ "$NODE_TYPE" == "evm" ]]; then
+        info "Stopping EVM node service: $DAEMON_SERVICE"
+        sudo systemctl disable --now "$DAEMON_SERVICE" >/dev/null 2>&1 || true
 
-    if [[ ! -x "$DAEMON_PATH" && -x "/usr/local/bin/$DAEMON_BINARY" ]]; then
-        DAEMON_PATH="/usr/local/bin/$DAEMON_BINARY"
-    fi
-    if [[ ! -x "$CLI_PATH" && -x "/usr/local/bin/$CLI_BINARY" ]]; then
-        CLI_PATH="/usr/local/bin/$CLI_BINARY"
-    fi
+        if [[ -e "$DAEMON_SERVICE_FILE" || -L "$DAEMON_SERVICE_FILE" ]]; then
+            info "Removing EVM node service: $DAEMON_SERVICE_FILE"
+            sudo rm -f -- "$DAEMON_SERVICE_FILE"
+        fi
+        sudo systemctl daemon-reload
 
-    remove_cron_lines "$STORAGE_USER" \
-        "$DAEMON_PATH -datadir=$DAEMON_DATADIR" \
-        "$DAEMON_BINARY -datadir=$DAEMON_DATADIR"
+        if [[ -n "$DAEMON_RUNNER" && ( -e "$DAEMON_RUNNER" || -L "$DAEMON_RUNNER" ) ]]; then
+            info "Removing EVM node runner: $DAEMON_RUNNER"
+            sudo rm -f -- "$DAEMON_RUNNER"
+        fi
 
-    if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" && "${SUDO_USER}" != "$STORAGE_USER" ]]; then
-        remove_cron_lines "$SUDO_USER" \
+        if [[ -n "$RPC_HELPER_BINARY" && ( -e "/usr/bin/$RPC_HELPER_BINARY" || -L "/usr/bin/$RPC_HELPER_BINARY" ) ]]; then
+            info "Removing EVM RPC helper: /usr/bin/$RPC_HELPER_BINARY"
+            sudo rm -f -- "/usr/bin/$RPC_HELPER_BINARY"
+        fi
+
+        DAEMON_PATH="/usr/bin/$DAEMON_BINARY"
+        if [[ ! -e "$DAEMON_PATH" && -e "/usr/local/bin/$DAEMON_BINARY" ]]; then
+            DAEMON_PATH="/usr/local/bin/$DAEMON_BINARY"
+        fi
+        if [[ -e "$DAEMON_PATH" || -L "$DAEMON_PATH" ]]; then
+            info "Removing EVM node binary: $DAEMON_PATH"
+            remove_binary_and_aliases "$DAEMON_PATH"
+        fi
+    else
+        DAEMON_PATH="/usr/bin/$DAEMON_BINARY"
+        CLI_PATH="/usr/bin/$CLI_BINARY"
+
+        if [[ ! -x "$DAEMON_PATH" && -x "/usr/local/bin/$DAEMON_BINARY" ]]; then
+            DAEMON_PATH="/usr/local/bin/$DAEMON_BINARY"
+        fi
+        if [[ ! -x "$CLI_PATH" && -x "/usr/local/bin/$CLI_BINARY" ]]; then
+            CLI_PATH="/usr/local/bin/$CLI_BINARY"
+        fi
+
+        remove_cron_lines "$STORAGE_USER" \
             "$DAEMON_PATH -datadir=$DAEMON_DATADIR" \
             "$DAEMON_BINARY -datadir=$DAEMON_DATADIR"
-    fi
 
-    stop_daemon "$DAEMON_PATH" "$CLI_PATH" "$DAEMON_DATADIR" "$DAEMON_CONF"
-
-    for binary_name in \
-        "$DAEMON_BINARY" "$CLI_BINARY" "$TX_BINARY" "$UTIL_BINARY" \
-        "$HASH_BINARY" "$WALLET_BINARY" "$QT_BINARY"; do
-        [[ -n "$binary_name" ]] || continue
-        if [[ -e "/usr/bin/$binary_name" || -L "/usr/bin/$binary_name" ]]; then
-            remove_binary_and_aliases "/usr/bin/$binary_name"
-        elif [[ -e "/usr/local/bin/$binary_name" || -L "/usr/local/bin/$binary_name" ]]; then
-            remove_binary_and_aliases "/usr/local/bin/$binary_name"
+        if [[ -n "${SUDO_USER:-}" && "${SUDO_USER}" != "root" && "${SUDO_USER}" != "$STORAGE_USER" ]]; then
+            remove_cron_lines "$SUDO_USER" \
+                "$DAEMON_PATH -datadir=$DAEMON_DATADIR" \
+                "$DAEMON_BINARY -datadir=$DAEMON_DATADIR"
         fi
-    done
 
-    if [[ -n "$DAEMON_BOOT_LOG" ]]; then
-        sudo rm -f -- "$DAEMON_BOOT_LOG" "$DAEMON_BOOT_LOG".* 2>/dev/null || true
+        stop_daemon "$DAEMON_PATH" "$CLI_PATH" "$DAEMON_DATADIR" "$DAEMON_CONF"
+
+        for binary_name in \
+            "$DAEMON_BINARY" "$CLI_BINARY" "$TX_BINARY" "$UTIL_BINARY" \
+            "$HASH_BINARY" "$WALLET_BINARY" "$QT_BINARY"; do
+            [[ -n "$binary_name" ]] || continue
+            if [[ -e "/usr/bin/$binary_name" || -L "/usr/bin/$binary_name" ]]; then
+                remove_binary_and_aliases "/usr/bin/$binary_name"
+            elif [[ -e "/usr/local/bin/$binary_name" || -L "/usr/local/bin/$binary_name" ]]; then
+                remove_binary_and_aliases "/usr/local/bin/$binary_name"
+            fi
+        done
+
+        if [[ -n "$DAEMON_BOOT_LOG" ]]; then
+            sudo rm -f -- "$DAEMON_BOOT_LOG" "$DAEMON_BOOT_LOG".* 2>/dev/null || true
+        fi
     fi
 
     if [[ "$KEEP_WALLET" == false && -e "$DAEMON_DATADIR" ]]; then

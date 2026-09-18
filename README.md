@@ -215,10 +215,12 @@ Configure a coin directly:
 addport COIN ALGORITHM BINARY
 ```
 
-Example:
+Examples:
 
 ```bash
 addport GAEL kawpow stratum-kp
+addport VBC ethash stratum-kp
+addport ETC etchash stratum-kp
 ```
 
 SQSYIIMP can bind an individual coin configuration to a selected Stratum
@@ -562,14 +564,23 @@ A typical daemon data directory may look like:
 
 DaemonBuilder can assist with:
 
-- Source compilation
+- Source compilation for UTXO-style daemons
 - Precompiled daemon installation
-- Wallet configuration
-- RPC configuration
+- Geth/Core-Geth compatible Ethash and Etchash node installation
+- Local-only EVM JSON-RPC configuration for pool mining
+- Pruned EVM node profiles (`--gcmode full` when supported)
+- Dedicated systemd services for EVM nodes
+- Wallet/RPC configuration
 - Data directory creation
 - Binary deployment
 - Daemon startup
-- YiiMP integration
+- YiiMP/Stratum integration through `addport`
+
+For Ethash/Etchash coins, choose **Install Ethash / Etchash EVM Coin Node**
+inside `daemonbuilder`. The wizard accepts an existing executable or a direct
+Linux precompiled download, supports optional network arguments (for example
+`--classic`), optional `genesis.json`, allocates local RPC/P2P ports, and then
+creates the dedicated Stratum configuration.
 
 When a newer SQSYIIMP release exists, DaemonBuilder can also offer access to
 the unified SQSYIIMP updater.

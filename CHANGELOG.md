@@ -6,7 +6,10 @@ All notable changes to SQSYIIMP are documented in this file.
 
 ### Added
 
-- Add managed Ethash Stratum templates: a coin-neutral `ethash.conf` for `addport` plus a dedicated `vbc.ethash.conf` on TCP port `6453` with `difficulty = 0.1`, `diff_min = 0.05`, `diff_max = 8192`, `max_ttf = 50000` and `include = VBC`; credentials are rendered from the existing SQSYIIMP configuration and administrator-provided configs are preserved.
+- Add a dedicated DaemonBuilder wizard for Geth/Core-Geth compatible Ethash/Etchash coins: existing or downloaded Linux binaries, optional genesis/network arguments, local-only JSON-RPC, pruned `gcmode=full` profile when supported, per-coin systemd service, RPC helper, managed metadata and automatic handoff to `addport`.
+- Add coin-neutral `etchash.conf` provisioning alongside `ethash.conf`, and let `addport` safely bootstrap missing Ethash/Etchash templates from the existing SQSYIIMP pool/SQL credentials without overwriting administrator configs.
+- Extend `removecoin --purge-node` to understand managed EVM nodes and remove their systemd unit, runner, RPC helper, binary and datadir without using Bitcoin-style `-conf/-daemon` shutdown arguments.
+- Add managed Ethash/Etchash Stratum templates: coin-neutral `ethash.conf` and `etchash.conf` bases for `addport` plus a dedicated `vbc.ethash.conf` on TCP port `6453` with `difficulty = 0.1`, `diff_min = 0.05`, `diff_max = 8192`, `max_ttf = 50000` and `include = VBC`; credentials are rendered from the existing SQSYIIMP configuration and administrator-provided configs are preserved.
 - Preview the exact backup paths, per-path sizes, total count and total size selected by `removecoin --purge-backups` before confirmation; apply mode removes only those planned paths and protects automatic `removecoin-db` safety backups.
 
 ## v1.0.5 - 2026-09-14

@@ -2230,6 +2230,7 @@ EOF_MANAGED_BASE
     fi
 
     cat >> "$SQSYIIMP_MANAGED_TMP" <<EOF_MANAGED_DAEMON
+NODE_TYPE=utxo
 COIN_NAME=${coin,,}
 DAEMON_BINARY=${coind:-}
 CLI_BINARY=${coincli:-}

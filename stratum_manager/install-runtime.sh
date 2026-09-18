@@ -14,6 +14,7 @@ fi
 STORAGE_USER="${STORAGE_USER:-crypto-data}"
 STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
 STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
+INSTALL_USER="${SUDO_USER:-${USER:-root}}"
 
 STRATUM_DIR="${1:-${STORAGE_ROOT}/yiimp/site/stratum}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -39,8 +40,8 @@ for config_file in "$STRATUM_DIR"/config/*.conf; do
         sudo chown "$STORAGE_USER:$STORAGE_GROUP" "/var/log/stratum-${coin_name}.log"
         sudo chmod 0640 "/var/log/stratum-${coin_name}.log"
         if command -v setfacl >/dev/null 2>&1 && \
-           [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
-            sudo setfacl -m "u:${SUDO_USER}:rw,m::rw" \
+           [ -n "$INSTALL_USER" ] && [ "$INSTALL_USER" != "root" ]; then
+            sudo setfacl -m "u:${INSTALL_USER}:rw,m::rw" \
                 "/var/log/stratum-${coin_name}.log"
         fi
     fi
@@ -61,8 +62,8 @@ sudo tee /etc/logrotate.d/sqsyiimp-stratum >/dev/null <<EOF_LOGROTATE
     postrotate
         /usr/bin/chown ${STORAGE_USER}:${STORAGE_GROUP} /var/log/stratum-*.log 2>/dev/null || true
         /usr/bin/chmod 0640 /var/log/stratum-*.log 2>/dev/null || true
-        if [ -x /usr/bin/setfacl ] && [ -n "${SUDO_USER:-}" ] && [ "${SUDO_USER:-root}" != root ]; then
-            /usr/bin/setfacl -m u:${SUDO_USER}:rw,m::rw /var/log/stratum-*.log 2>/dev/null || true
+        if [ -x /usr/bin/setfacl ] && [ -n "${INSTALL_USER}" ] && [ "${INSTALL_USER}" != root ]; then
+            /usr/bin/setfacl -m u:${INSTALL_USER}:rw,m::rw /var/log/stratum-*.log 2>/dev/null || true
         fi
     endscript
 }

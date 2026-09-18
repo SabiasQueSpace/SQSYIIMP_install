@@ -898,3 +898,22 @@ Review the license file before redistributing or modifying the project.
 **SabiasQue.Space**
 
 </div>
+
+<!-- SQSYIIMP_ETHASH_ETCHASH_DOCS_START -->
+## Ethash / Etchash EVM coins
+
+SQSYIIMP supports EVM Proof-of-Work coin installation and Stratum configuration
+for the independent `ethash` and `etchash` algorithm families.
+
+Full manual:
+
+```text
+docs/ETHASH-ETCHASH-MANUAL.md
+```
+
+Etchash Stratum integration:
+
+```text
+stratum_manager/patches/etchash-etc/
+```
+<!-- SQSYIIMP_ETHASH_ETCHASH_DOCS_END -->

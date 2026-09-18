@@ -110,3 +110,30 @@ their systemd service, local JSON-RPC endpoint and P2P port so `removecoin
 - `runner.sh` — reads `[RUNTIME] binary` and launches that executable.
 - `install.sh` — installs or refreshes the manager and runtime.
 - `install-runtime.sh` — installs the live runner in the Stratum directory.
+
+<!-- SQSYIIMP_ETHASH_ETCHASH_STRATUM_DOCS_START -->
+## Ethash / Etchash
+
+The shared Ethash-family runtime supports separate `ethash` and `etchash`
+algorithm selections.
+
+Check the Etchash source/runtime integration:
+
+```bash
+sudo bash stratum_manager/patches/etchash-etc/install.sh --check
+```
+
+If the source reports `patched`, no reinstall is required.
+
+For a pristine supported source:
+
+```bash
+sudo bash stratum_manager/patches/etchash-etc/install.sh
+```
+
+Full node, database, addport, validation, and troubleshooting guide:
+
+```text
+docs/ETHASH-ETCHASH-MANUAL.md
+```
+<!-- SQSYIIMP_ETHASH_ETCHASH_STRATUM_DOCS_END -->

@@ -109,6 +109,23 @@ input_value() {
     printf -v "$__var" '%s' "$value"
 }
 
+input_secret() {
+    local title="$1"
+    local text="$2"
+    local __var="$3"
+    local value=""
+
+    if command -v dialog >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
+        value="$(dialog --stdout --backtitle 'MegaHashPool - SQSYIIMP' \
+            --title "$title" --insecure --passwordbox "$text" 16 82)" || exit 0
+    else
+        read -r -s -p "$text: " value
+        echo
+    fi
+
+    printf -v "$__var" '%s' "$value"
+}
+
 choose_menu() {
     local title="$1"
     local text="$2"
@@ -429,9 +446,84 @@ port_is_free_tcp "$p2p_port" && port_is_free_udp "$p2p_port" || fatal "P2P port 
 network_args_text=''
 input_value 'Network Arguments' 'Optional network selector/client flags (examples: --classic or --networkid 61). Leave empty when the binary defaults to the correct chain.' '' network_args_text
 
+# Create the coin datadir before selecting the reward address so DaemonBuilder
+# can create a dedicated encrypted Geth/Core-Geth account when the operator
+# does not already have a pool payout address.
+datadir="$STORAGE_ROOT/wallets/.${coin_id}"
+sudo install -d -o "$STORAGE_USER" -g "$STORAGE_GROUP" -m 0750 "$STORAGE_ROOT/wallets" "$datadir"
+
+wallet_mode=''
+choose_menu 'Pool Reward Wallet' 'Choose the address that will receive block rewards from this pool.' wallet_mode \
+    existing 'Use an existing 0x reward address' \
+    create   'Create a new encrypted wallet in this coin datadir'
+
 etherbase=''
-input_value 'Pool Reward Address' '0x mining reward/coinbase address used to build Ethash/Etchash work for the pool' '' etherbase
-[[ "$etherbase" =~ ^0x[0-9A-Fa-f]{40}$ ]] || fatal 'A valid 0x-prefixed 20-byte reward address is required for pool mining'
+generated_wallet=false
+generated_keyfile=''
+
+if [[ "$wallet_mode" == 'existing' ]]; then
+    input_value 'Pool Reward Address' 'Existing 0x mining reward/coinbase address used to build Ethash/Etchash work for the pool' '' etherbase
+    [[ "$etherbase" =~ ^0x[0-9A-Fa-f]{40}$ ]] || fatal 'A valid 0x-prefixed 20-byte reward address is required for pool mining'
+else
+    # The password exists only in shell memory and in a short-lived 0600 file
+    # required by geth account new. It is never stored in the service runner,
+    # metadata or command line. The operator must remember/store it securely.
+    wallet_password=''
+    wallet_password_confirm=''
+    input_secret 'New Pool Wallet' 'Password for the new encrypted pool wallet (do not forget it)' wallet_password
+    [[ -n "$wallet_password" ]] || fatal 'Wallet password cannot be empty'
+    input_secret 'Confirm Wallet Password' 'Repeat the new pool wallet password' wallet_password_confirm
+    [[ "$wallet_password" == "$wallet_password_confirm" ]] || fatal 'Wallet passwords do not match'
+
+    wallet_passfile="$(sudo -u "$STORAGE_USER" mktemp "/tmp/sqsyiimp-${coin_id}-wallet-pass.XXXXXX")"
+    sudo -u "$STORAGE_USER" chmod 0600 "$wallet_passfile"
+    printf '%s\n' "$wallet_password" | sudo -u "$STORAGE_USER" tee "$wallet_passfile" >/dev/null
+
+    print_status "Creating encrypted pool wallet in $datadir..."
+    account_output=''
+    if ! account_output="$(sudo -u "$STORAGE_USER" "$installed_binary" \
+        --datadir "$datadir" account new --password "$wallet_passfile" 2>&1)"; then
+        sudo rm -f "$wallet_passfile"
+        wallet_password=''
+        wallet_password_confirm=''
+        print_error 'The node client could not create the pool wallet.'
+        printf '%s\n' "$account_output" >&2
+        fatal "Wallet creation failed. Check that '$expected_binary' supports 'account new'."
+    fi
+
+    sudo rm -f "$wallet_passfile"
+    wallet_password=''
+    wallet_password_confirm=''
+
+    etherbase="$(grep -Eo '0x[0-9A-Fa-f]{40}' <<<"$account_output" | tail -n1 || true)"
+    generated_keyfile="$(find "$datadir/keystore" -maxdepth 1 -type f -name 'UTC--*' \
+        -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n1 | cut -d' ' -f2- || true)"
+
+    # Fallback for clients whose account-new output does not print 0x... but
+    # created a standard V3 keystore file.
+    if [[ ! "$etherbase" =~ ^0x[0-9A-Fa-f]{40}$ && -n "$generated_keyfile" ]]; then
+        key_address="$(python3 - "$generated_keyfile" <<'PY_WALLET'
+import json
+import sys
+try:
+    with open(sys.argv[1], 'r', encoding='utf-8') as fh:
+        address = json.load(fh).get('address', '')
+except Exception:
+    address = ''
+if len(address) == 40 and all(c in '0123456789abcdefABCDEF' for c in address):
+    print('0x' + address)
+PY_WALLET
+)"
+        etherbase="$key_address"
+    fi
+
+    [[ "$etherbase" =~ ^0x[0-9A-Fa-f]{40}$ ]] || fatal 'Wallet was created but its 0x address could not be detected automatically'
+    generated_wallet=true
+
+    print_success "New pool reward wallet created: $etherbase"
+    [[ -n "$generated_keyfile" ]] && print_info "Keystore file : $generated_keyfile"
+    print_warning 'Back up the keystore file and remember the wallet password. Both are required to spend the rewards.'
+fi
 
 sync_mode='full'
 if grep -qi -- 'snap' <<<"$binary_help"; then
@@ -444,9 +536,6 @@ fi
 
 extra_args_text=''
 input_value 'Additional Node Arguments' 'Optional extra runtime flags. Leave empty unless this coin requires them.' '' extra_args_text
-
-datadir="$STORAGE_ROOT/wallets/.${coin_id}"
-sudo install -d -o "$STORAGE_USER" -g "$STORAGE_GROUP" -m 0750 "$STORAGE_ROOT/wallets" "$datadir"
 
 # Build the runtime argument array. Modern Geth HTTP flags are preferred;
 # legacy --rpc flags are used when the client exposes only the old interface.
@@ -549,6 +638,10 @@ print_info "Service      : $service_name"
 print_info "JSON-RPC     : http://127.0.0.1:$rpc_port"
 print_info "P2P port     : $p2p_port"
 print_info "Reward addr  : $etherbase"
+if [[ "$generated_wallet" == true ]]; then
+    print_info "Wallet       : newly created encrypted account"
+    [[ -n "$generated_keyfile" ]] && print_info "Keystore     : $generated_keyfile"
+fi
 print_info "RPC helper   : $rpc_helper"
 
 start_node=true
@@ -605,6 +698,12 @@ print_info "RPC check   : $rpc_helper eth_blockNumber"
 print_info "Mining RPC  : $rpc_helper eth_getWork"
 print_info "Stratum     : stratum.${coin_symbol,,} status"
 print_info "Remove plan : removecoin $coin_symbol --check --purge-node"
+
+if [[ "$generated_wallet" == true ]]; then
+    echo
+    print_warning "POOL WALLET BACKUP REQUIRED: $datadir/keystore/"
+    print_warning 'Keep an offline backup of the keystore and the password. The password is intentionally not stored by SQSYIIMP.'
+fi
 
 echo
 print_warning 'Pruning does not impose a fixed 3 GB disk cap. The live chain state and databases still require whatever space the network needs.'

@@ -579,8 +579,11 @@ DaemonBuilder can assist with:
 For Ethash/Etchash coins, choose **Install Ethash / Etchash EVM Coin Node**
 inside `daemonbuilder`. The wizard accepts an existing executable or a direct
 Linux precompiled download, supports optional network arguments (for example
-`--classic`), optional `genesis.json`, allocates local RPC/P2P ports, and then
-creates the dedicated Stratum configuration.
+`--classic`), optional `genesis.json`, allocates local RPC/P2P ports, and lets
+the operator either provide an existing `0x` reward address or create a new
+encrypted Geth/Core-Geth wallet inside the coin datadir. The wallet password is
+used only through a short-lived `0600` temporary file and is not stored by
+SQSYIIMP. The wizard then creates the dedicated Stratum configuration.
 
 When a newer SQSYIIMP release exists, DaemonBuilder can also offer access to
 the unified SQSYIIMP updater.

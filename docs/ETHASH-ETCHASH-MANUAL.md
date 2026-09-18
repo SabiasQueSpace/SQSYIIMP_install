@@ -1,37 +1,10 @@
 # SQSYIIMP — Ethash / Etchash Coin Installation Manual
 
-This manual describes a normalized procedure for installing, registering, validating, and troubleshooting EVM Proof-of-Work coins that use `ethash` or `etchash` with SQSYIIMP.
+This manual describes the operational procedure for installing, registering, validating, and troubleshooting EVM Proof-of-Work coins that use `ethash` or `etchash` with SQSYIIMP.
 
-The instructions are intentionally generic. Replace example values with the values required by the target coin.
+It assumes a current SQSYIIMP installation. Project updates, release tags, source patches, and upgrade procedures are intentionally outside the scope of this usage manual.
 
-## 0. Conventions and environment variables
-
-Define these variables once in your shell before following the command examples:
-
-```bash
-export SQSYIIMP_REPO="${SQSYIIMP_REPO:-$HOME/sqsyiimp}"
-export YIIMP_ROOT="${YIIMP_ROOT:-/home/crypto-data/yiimp}"
-export WALLET_ROOT="${WALLET_ROOT:-/home/crypto-data/wallets}"
-export STRATUM_SRC="$YIIMP_ROOT/site/code-stratums/stratum-kawpow-sqs"
-export STRATUM_ROOT="$YIIMP_ROOT/site/stratum"
-```
-
-The defaults above match a common SQSYIIMP installation. Change them if your installation uses different paths.
-
-Throughout this manual:
-
-```text
-<COIN_NAME>       Full coin name
-<SYMBOL>          YiiMP ticker / symbol
-<IDENTIFIER>      Lowercase filesystem/service identifier
-<ALGO>            ethash or etchash
-<RPC_PORT>        Local JSON-RPC HTTP port
-<P2P_PORT>        Peer-to-peer network port
-<STRATUM_PORT>    Dedicated Stratum port
-<YIIMP_DATABASE>  YiiMP database name
-```
-
----
+The instructions are generic. Replace example values with the values required by the target coin.
 
 ## 1. Ethash and Etchash are separate algorithms
 
@@ -50,54 +23,7 @@ A coin being EVM-compatible does not prove that it uses Ethash or Etchash. Confi
 
 ---
 
-## 2. One-time Etchash Stratum integration
-
-Ethash support already exists in the shared Stratum source. Etchash support is installed once per Stratum source/runtime, not once per coin.
-
-Check the integration:
-
-```bash
-cd "$SQSYIIMP_REPO"
-sudo bash stratum_manager/patches/etchash-etc/install.sh --check
-```
-
-A pristine supported source can report:
-
-```text
-Source state:    pristine
-Bridge compile:  OK
-CHECK OK: source matches the supported snapshot.
-```
-
-An already-installed source can report:
-
-```text
-Source state:    patched
-Bridge compile:  OK
-CHECK OK: Etchash source patch is already installed.
-```
-
-If the source is already `patched`, do not reinstall it.
-
-For a pristine supported source:
-
-```bash
-cd "$SQSYIIMP_REPO"
-sudo bash stratum_manager/patches/etchash-etc/install.sh
-```
-
-Verify the shared runtime:
-
-```bash
-strings "$STRATUM_ROOT/stratum-ethash-test" \
-  | grep -E '^ethash$|^etchash$|Algorithm engine selected: (ETHASH|ETCHASH)'
-```
-
-Expected result: both `ethash` and `etchash` engine markers are present.
-
----
-
-## 3. Install the EVM node with DaemonBuilder
+## 2. Install the EVM node with DaemonBuilder
 
 Start DaemonBuilder:
 
@@ -200,7 +126,7 @@ Do not copy a network flag from another coin without verifying it.
 
 ---
 
-## 4. Reward wallet and backup policy
+## 3. Reward wallet and backup policy
 
 Choose whether to use an existing reward address or create a new encrypted wallet.
 
@@ -222,7 +148,7 @@ List accounts for a typical Geth-compatible client:
 ```bash
 sudo -u crypto-data \
   /usr/bin/<IDENTIFIER>-geth \
-  --datadir "$WALLET_ROOT/.<IDENTIFIER>" \
+  --datadir /home/crypto-data/wallets/.<IDENTIFIER> \
   account list
 ```
 
@@ -230,7 +156,7 @@ Adjust the executable name if the installed node uses a different suffix.
 
 ---
 
-## 5. Synchronization and optional node settings
+## 4. Synchronization and optional node settings
 
 ### Synchronization mode
 
@@ -258,7 +184,7 @@ For a dedicated pool node, enabling the service at boot is normally appropriate.
 
 ---
 
-## 6. Validate the node and RPC
+## 5. Validate the node and RPC
 
 The local JSON-RPC endpoint should normally bind to localhost:
 
@@ -295,12 +221,12 @@ The node is ready for production mining only when `eth_syncing` returns:
 
 ---
 
-## 7. Register Ethash and Etchash separately in YiiMP
+## 6. Register Ethash and Etchash separately in YiiMP
 
 Set the database name:
 
 ```bash
-export DB="<YIIMP_DATABASE>"
+DB="<YIIMP_DATABASE>"
 ```
 
 Inspect the algorithm rows:
@@ -374,7 +300,7 @@ Do not assume every YiiMP fork has identical columns.
 
 ---
 
-## 8. Configure the coin in the YiiMP administration panel
+## 7. Configure the coin in the YiiMP administration panel
 
 Use values that match the node that was actually installed.
 
@@ -399,7 +325,7 @@ Do not use the keystore password as the RPC password.
 
 ---
 
-## 9. Create the Stratum port with `addport`
+## 8. Create the Stratum port with `addport`
 
 Run:
 
@@ -430,7 +356,7 @@ stratum-ethash-test
 The generated configuration normally follows:
 
 ```text
-$STRATUM_ROOT/config/<coin>.<algo>.conf
+/home/crypto-data/yiimp/site/stratum/config/<coin>.<algo>.conf
 ```
 
 Example structure:
@@ -478,19 +404,19 @@ Adjust values after observing the actual miner, hashrate, share rate, rejects, a
 
 ---
 
-## 10. Validate the generated Stratum configuration
+## 9. Validate the generated Stratum configuration
 
 Inspect the file:
 
 ```bash
-sudo cat "$STRATUM_ROOT/config/<coin>.<algo>.conf"
+sudo cat "/home/crypto-data/yiimp/site/stratum/config/<coin>.<algo>.conf"
 ```
 
 There should be only one `[WALLETS]` section:
 
 ```bash
 grep -n '^\[WALLETS\]' \
-  "$STRATUM_ROOT/config/<coin>.<algo>.conf"
+  "/home/crypto-data/yiimp/site/stratum/config/<coin>.<algo>.conf"
 ```
 
 Expected:
@@ -511,7 +437,7 @@ correct dedicated Stratum port
 
 ---
 
-## 11. Start and validate the Stratum
+## 10. Start and validate the Stratum
 
 Keep the Stratum stopped while the node is still syncing.
 
@@ -544,7 +470,7 @@ ERROR: 13 invalid algo
 
 ---
 
-## 12. Troubleshooting
+## 11. Troubleshooting
 
 ### `ERROR: 13 invalid algo`
 
@@ -553,15 +479,8 @@ The runtime does not recognize the configured algorithm.
 Check the runtime:
 
 ```bash
-strings "$STRATUM_ROOT/stratum-ethash-test" \
+strings /home/crypto-data/yiimp/site/stratum/stratum-ethash-test \
   | grep -E '^ethash$|^etchash$|Algorithm engine selected: (ETHASH|ETCHASH)'
-```
-
-Check the source patch:
-
-```bash
-cd "$SQSYIIMP_REPO"
-sudo bash stratum_manager/patches/etchash-etc/install.sh --check
 ```
 
 Check all three algorithm references:
@@ -572,7 +491,7 @@ coins.algo
 runtime engine support
 ```
 
-They must agree.
+They must agree. If the required engine marker is missing from the installed runtime, update SQSYIIMP through the normal project release/update mechanism before enabling the coin.
 
 ### `eth_syncing` returns an object
 
@@ -594,14 +513,14 @@ sudo journalctl -u sqsyiimp-<IDENTIFIER>-node.service -n 100 --no-pager
 
 ```bash
 grep -n '^\[WALLETS\]' \
-  "$STRATUM_ROOT/config/<coin>.<algo>.conf"
+  "/home/crypto-data/yiimp/site/stratum/config/<coin>.<algo>.conf"
 ```
 
 Keep only one valid section.
 
 ### `Text file busy` when replacing a runtime binary
 
-Do not manually overwrite an executable that is actively mapped by a running process. Use the provided installer/deployment flow. If performing manual maintenance, stop the relevant Stratum process first.
+Do not manually overwrite an executable that is actively mapped by a running process. For manual maintenance, stop the relevant Stratum process first and use the normal SQSYIIMP update procedure for runtime changes.
 
 ```bash
 /usr/bin/stratum.<coin> status
@@ -647,7 +566,7 @@ no invalid-algo loop
 
 ---
 
-## 13. Ethereum Classic example
+## 12. Ethereum Classic example
 
 Ethereum Classic is a useful reference for an Etchash deployment:
 
@@ -678,7 +597,7 @@ Do not reuse ETC-specific arguments for another coin unless its upstream documen
 
 ---
 
-## 14. Service lifecycle and removal
+## 13. Service lifecycle and removal
 
 Status:
 
@@ -708,7 +627,7 @@ Review the generated plan before performing the final removal.
 
 ---
 
-## 15. Final checklist
+## 14. Final checklist
 
 ```text
 ╭──────────────────────── FINAL CHECKLIST ────────────────────────╮
@@ -732,30 +651,3 @@ Review the generated plan before performing the final removal.
 │ [ ] Real miner connection tested before public launch         │
 ╰─────────────────────────────────────────────────────────────────╯
 ```
-
----
-
-## 16. Repository layout
-
-```text
-docs/
-├── ETHASH-ETCHASH-MANUAL.md
-└── images/
-    ├── 01-daemonbuilder-menu.png
-    ├── 02-mining-algorithm.png
-    ├── ...
-    └── 16-start-node.png
-
-stratum_manager/
-├── README.md
-└── patches/
-    └── etchash-etc/
-        ├── README.md
-        ├── SHA256SUMS
-        ├── install.sh
-        ├── files/
-        ├── patches/
-        └── tests/
-```
-
-Keep this manual synchronized with changes to DaemonBuilder, `addport`, the runtime binary name, database workflow, and EVM-node service generation.

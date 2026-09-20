@@ -231,6 +231,145 @@ PY_RENDER_SHA3X
 }
 
 
+# SQS_MANAGED_ALGORITHM_TEMPLATES_V1
+#
+# Install algorithm templates shipped by SQSYIIMP without overwriting
+# administrator-managed runtime templates.
+#
+# Ethash/Etchash remain handled by install_ethash_templates().
+# COSA is deliberately excluded from SQSYIIMP.
+install_repository_algorithm_templates() {
+    local source=""
+    local target=""
+    local name=""
+    local rendered=""
+    local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
+    local db_host="localhost"
+
+    if [[ -r "$yiimp_conf" ]]; then
+        # shellcheck disable=SC1090
+        source "$yiimp_conf"
+    fi
+
+    if [[ -z "${StratumURL:-}" ||
+          -z "${BlocknotifyPassword:-}" ||
+          -z "${YiiMPDBName:-}" ||
+          -z "${StratumDBUser:-}" ||
+          -z "${StratumUserDBPassword:-}" ]]; then
+        echo "WARNING: managed Stratum templates were not installed because SQSYIIMP credentials are incomplete in $yiimp_conf" >&2
+        return 0
+    fi
+
+    if [[ -n "${DBInternalIP:-}" ]]; then
+        db_host="$DBInternalIP"
+    fi
+
+    sudo install -d \
+        -o "$STORAGE_USER" \
+        -g "$STORAGE_GROUP" \
+        -m 0755 \
+        "$TEMPLATE_DIR"
+
+    shopt -s nullglob
+
+    for source in "$SCRIPT_DIR"/templates/*.conf; do
+        name="${source##*/}"
+
+        case "$name" in
+            cosa.conf)
+                echo "Skipping deliberately excluded algorithm template: $name"
+                continue
+                ;;
+            ethash.conf|etchash.conf)
+                # These require their dedicated installation path.
+                continue
+                ;;
+        esac
+
+        target="$TEMPLATE_DIR/$name"
+
+        if [[ -e "$target" ]]; then
+            echo "Algorithm template already exists; preserving: $target"
+            continue
+        fi
+
+        rendered="$(mktemp)"
+
+        STRATUM_URL="$StratumURL" \
+        STRATUM_PASSWORD="$BlocknotifyPassword" \
+        SQL_HOST="$db_host" \
+        SQL_DATABASE="$YiiMPDBName" \
+        SQL_USERNAME="$StratumDBUser" \
+        SQL_PASSWORD="$StratumUserDBPassword" \
+        python3 - "$source" "$rendered" <<'PY_RENDER_TEMPLATE'
+from pathlib import Path
+import os
+import re
+import sys
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+
+text = source.read_text(errors="strict")
+
+replacements = {
+    ("TCP", "server"): os.environ["STRATUM_URL"],
+    ("TCP", "password"): os.environ["STRATUM_PASSWORD"],
+    ("SQL", "host"): os.environ["SQL_HOST"],
+    ("SQL", "database"): os.environ["SQL_DATABASE"],
+    ("SQL", "username"): os.environ["SQL_USERNAME"],
+    ("SQL", "password"): os.environ["SQL_PASSWORD"],
+}
+
+section = None
+out = []
+
+for line in text.splitlines():
+    match = re.match(
+        r"^\s*\[([^]]+)\]\s*$",
+        line
+    )
+
+    if match:
+        section = match.group(1).upper()
+        out.append(line)
+        continue
+
+    rendered = line
+
+    for (wanted_section, key), value in replacements.items():
+        if (
+            section == wanted_section
+            and re.match(
+                rf"^\s*{re.escape(key)}\s*=",
+                line,
+                re.I,
+            )
+        ):
+            rendered = f"{key} = {value}"
+            break
+
+    out.append(rendered)
+
+target.write_text("\n".join(out) + "\n")
+PY_RENDER_TEMPLATE
+
+        sudo install \
+            -o "$STORAGE_USER" \
+            -g "$STORAGE_GROUP" \
+            -m 0640 \
+            "$rendered" \
+            "$target"
+
+        rm -f "$rendered"
+        rendered=""
+
+        echo "Algorithm template installed: $target"
+    done
+
+    shopt -u nullglob
+}
+
 install_ethash_templates() {
     local base_target="$TEMPLATE_DIR/ethash.conf"
     local etchash_target="$TEMPLATE_DIR/etchash.conf"
@@ -378,6 +517,7 @@ sudo install -d \
 
 migrate_legacy_algorithm_templates
 install_sha3x_template
+install_repository_algorithm_templates
 install_ethash_templates
 bash "$RUNTIME_INSTALLER" "$STRATUM_DIR"
 

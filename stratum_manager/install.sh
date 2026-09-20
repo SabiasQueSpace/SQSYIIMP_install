@@ -22,6 +22,7 @@ MANAGER_SOURCE="$SCRIPT_DIR/addport.sh"
 REMOVE_SOURCE="$SCRIPT_DIR/removecoin.sh"
 RUNTIME_INSTALLER="$SCRIPT_DIR/install-runtime.sh"
 ETHASH_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/ethash.conf"
+SHA3X_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/sha3x.conf"
 
 [ -f "$MANAGER_SOURCE" ] || {
     echo "ERROR: Stratum port manager source not found: $MANAGER_SOURCE" >&2
@@ -40,6 +41,11 @@ ETHASH_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/ethash.conf"
 
 [ -f "$ETHASH_TEMPLATE_SOURCE" ] || {
     echo "ERROR: Ethash Stratum template not found: $ETHASH_TEMPLATE_SOURCE" >&2
+    exit 1
+}
+
+[ -f "$SHA3X_TEMPLATE_SOURCE" ] || {
+    echo "ERROR: SHA3X Stratum template not found: $SHA3X_TEMPLATE_SOURCE" >&2
     exit 1
 }
 
@@ -124,6 +130,106 @@ migrate_legacy_algorithm_templates() {
     done
     shopt -u nullglob
 }
+
+install_sha3x_template() {
+    local target="$TEMPLATE_DIR/sha3x.conf"
+    local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
+    local db_host="localhost"
+    local rendered=""
+
+    #
+    # SQSYIIMP owns this algorithm template.
+    # No Stratum source or binary capability detection is performed.
+    #
+    if [[ -f "$target" ]]; then
+        echo "SHA3X algorithm template already exists; preserving: $target"
+        return 0
+    fi
+
+    if [[ -r "$yiimp_conf" ]]; then
+        # shellcheck disable=SC1090
+        source "$yiimp_conf"
+    fi
+
+    if [[ -z "${StratumURL:-}" ||
+          -z "${BlocknotifyPassword:-}" ||
+          -z "${YiiMPDBName:-}" ||
+          -z "${StratumDBUser:-}" ||
+          -z "${StratumUserDBPassword:-}" ]]; then
+        echo "WARNING: SHA3X template was not installed because SQSYIIMP credentials are incomplete in $yiimp_conf" >&2
+        return 0
+    fi
+
+    if [[ -n "${DBInternalIP:-}" ]]; then
+        db_host="$DBInternalIP"
+    fi
+
+    rendered="$(mktemp)"
+
+    STRATUM_URL="$StratumURL" \
+    STRATUM_PASSWORD="$BlocknotifyPassword" \
+    SQL_HOST="$db_host" \
+    SQL_DATABASE="$YiiMPDBName" \
+    SQL_USERNAME="$StratumDBUser" \
+    SQL_PASSWORD="$StratumUserDBPassword" \
+    python3 - "$SHA3X_TEMPLATE_SOURCE" "$rendered" <<'PY_RENDER_SHA3X'
+import os
+import re
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+target = Path(sys.argv[2])
+
+text = source.read_text()
+
+replacements = {
+    ("TCP", "server"): os.environ["STRATUM_URL"],
+    ("TCP", "password"): os.environ["STRATUM_PASSWORD"],
+    ("SQL", "host"): os.environ["SQL_HOST"],
+    ("SQL", "database"): os.environ["SQL_DATABASE"],
+    ("SQL", "username"): os.environ["SQL_USERNAME"],
+    ("SQL", "password"): os.environ["SQL_PASSWORD"],
+}
+
+section = None
+lines = []
+
+for line in text.splitlines():
+    match = re.match(r"^\s*\[([^]]+)\]\s*$", line)
+
+    if match:
+        section = match.group(1).upper()
+        lines.append(line)
+        continue
+
+    rendered = line
+
+    for (wanted_section, key), value in replacements.items():
+        if (
+            section == wanted_section and
+            re.match(rf"^\s*{re.escape(key)}\s*=", line, re.I)
+        ):
+            rendered = f"{key} = {value}"
+            break
+
+    lines.append(rendered)
+
+target.write_text("\n".join(lines) + "\n")
+PY_RENDER_SHA3X
+
+    sudo install \
+        -o "$STORAGE_USER" \
+        -g "$STORAGE_GROUP" \
+        -m 0640 \
+        "$rendered" \
+        "$target"
+
+    rm -f "$rendered"
+
+    echo "SHA3X algorithm template installed: $target"
+}
+
 
 install_ethash_templates() {
     local base_target="$TEMPLATE_DIR/ethash.conf"
@@ -271,6 +377,7 @@ sudo install -d \
     "$TEMPLATE_DIR"
 
 migrate_legacy_algorithm_templates
+install_sha3x_template
 install_ethash_templates
 bash "$RUNTIME_INSTALLER" "$STRATUM_DIR"
 

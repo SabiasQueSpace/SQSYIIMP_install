@@ -5,6 +5,7 @@ All notable changes to SQSYIIMP are documented in this file.
 ## Unreleased
 
 ### Added
+- Add a coin-neutral `sha3x.conf` algorithm template owned by SQSYIIMP; it is installed into `config/templates/` without inspecting or depending on Stratum source capabilities.
 
 - Separate reusable Stratum algorithm templates into `site/stratum/config/templates/` while keeping dedicated coin configs in `site/stratum/config/`; `addport`, DaemonBuilder, installer, removal cleanup, health checks and fresh/remote Stratum setup now understand the new layout and migrate legacy one-part templates safely.
 - Let the Ethash/Etchash DaemonBuilder wizard use an existing reward address or create a new encrypted Geth/Core-Geth pool wallet directly inside the coin datadir; the temporary password file is removed immediately and SQSYIIMP never stores the wallet password.

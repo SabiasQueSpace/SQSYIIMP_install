@@ -5,6 +5,7 @@ All notable changes to SQSYIIMP are documented in this file.
 ## Unreleased
 
 ### Added
+- Add optional Stratum binary capability discovery using the public `--help`, `--version` and `--algos` interface; when valid, algorithm availability is restricted for that specific binary, while binaries without introspection remain unrestricted and no Stratum source code is inspected.
 - Add a coin-neutral `sha3x.conf` algorithm template owned by SQSYIIMP; it is installed into `config/templates/` without inspecting or depending on Stratum source capabilities.
 
 - Separate reusable Stratum algorithm templates into `site/stratum/config/templates/` while keeping dedicated coin configs in `site/stratum/config/`; `addport`, DaemonBuilder, installer, removal cleanup, health checks and fresh/remote Stratum setup now understand the new layout and migrate legacy one-part templates safely.

@@ -148,3 +148,32 @@ Full node, database, addport, validation, and troubleshooting guide:
 docs/ETHASH-ETCHASH-MANUAL.md
 ```
 <!-- SQSYIIMP_ETHASH_ETCHASH_STRATUM_DOCS_END -->
+
+
+<!-- SQS_STRATUM_CAPABILITY_API_V1 -->
+
+### Stratum capability discovery
+
+SQSYIIMP keeps its own global algorithm catalogue and does not inspect
+Stratum source code to determine supported algorithms.
+
+A selected Stratum may optionally expose this public binary interface:
+
+- `--help`
+- `--version`
+- `--algos`
+
+When all three commands provide a valid interface, the algorithm list
+returned by `--algos` is authoritative for that specific Stratum binary.
+
+If the interface is unavailable, incomplete or invalid, the Stratum
+capabilities are considered unknown and SQSYIIMP does not restrict its
+algorithm catalogue.
+
+Capabilities can be inspected with:
+
+`addport --capabilities STRATUM_BINARY`
+
+This capability detection uses only the executable public interface.
+Stratum source files, repository layout and implementation details are
+not inspected.

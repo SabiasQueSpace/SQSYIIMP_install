@@ -1546,6 +1546,198 @@ stratum_binary_exists() {
     esac
 }
 
+# SQS_STRATUM_CAPABILITY_API_V1
+#
+# SQSYIIMP owns its global algorithm catalogue.
+# Capability decisions may use only a public binary interface.
+# Never inspect Stratum source code or repository layout.
+
+stratum_cli_query() {
+    local binary="${1:-}"
+    local option="${2:-}"
+    local path=""
+    local output=""
+
+    stratum_binary_exists "$binary" || return 1
+
+    case "$option" in
+        --help|--version|--algos) ;;
+        *) return 1 ;;
+    esac
+
+    path="$STRATUM_DIR/$binary"
+
+    if command -v timeout >/dev/null 2>&1; then
+        output="$(timeout 3 "$path" "$option" 2>&1)" || return 1
+    else
+        output="$("$path" "$option" 2>&1)" || return 1
+    fi
+
+    [[ -n "${output//[[:space:]]/}" ]] || return 1
+
+    printf '%s\n' "$output"
+}
+
+
+stratum_declared_algorithms() {
+    local binary="${1:-}"
+    local raw=""
+    local tokens=""
+    local algo=""
+    local found=0
+
+    raw="$(stratum_cli_query "$binary" --algos)" || return 1
+
+    tokens="$(
+        printf '%s\n' "$raw" |
+        tr '[:upper:]' '[:lower:]' |
+        sed -E 's/[^a-z0-9._+-]+/\n/g' |
+        sed '/^$/d' |
+        sort -u
+    )"
+
+    [[ -n "$tokens" ]] || return 1
+
+    while IFS= read -r algo; do
+        [[ -n "$algo" ]] || continue
+
+        if grep -Fxiq -- "$algo" <<< "$tokens"; then
+            printf '%s\n' "$algo"
+            found=1
+        fi
+    done < <(list_algorithms)
+
+    [[ "$found" -eq 1 ]]
+}
+
+
+stratum_has_public_capability_api() {
+    local binary="${1:-}"
+
+    stratum_cli_query "$binary" --help >/dev/null || return 1
+    stratum_cli_query "$binary" --version >/dev/null || return 1
+    stratum_declared_algorithms "$binary" >/dev/null || return 1
+
+    return 0
+}
+
+
+stratum_supports_algorithm() {
+    local binary="${1:-}"
+    local wanted="${2:-}"
+    local algo=""
+
+    if ! stratum_has_public_capability_api "$binary"; then
+        return 2
+    fi
+
+    while IFS= read -r algo; do
+        [[ -n "$algo" ]] || continue
+
+        if [[ "${algo,,}" == "${wanted,,}" ]]; then
+            return 0
+        fi
+    done < <(stratum_declared_algorithms "$binary")
+
+    return 1
+}
+
+
+# SQS_STRATUM_CAPABILITY_UI_V1
+
+print_stratum_capabilities() {
+    local binary="${1:-}"
+    local version=""
+    local algo=""
+
+    [[ -n "$binary" ]] ||
+        fatal "Usage: addport --capabilities STRATUM_BINARY"
+
+    stratum_binary_exists "$binary" ||
+        fatal "Stratum binary is not available: $binary"
+
+    echo
+    print_info "Stratum binary : $binary"
+    print_info "Binary path    : $STRATUM_DIR/$binary"
+
+    if stratum_has_public_capability_api "$binary"; then
+
+        version="$(stratum_cli_query "$binary" --version)"
+        version="${version%%$'\n'*}"
+
+        print_success "Public capability API detected"
+        print_info "Version        : $version"
+
+        echo
+        print_info "Algorithms declared by this Stratum:"
+
+        while IFS= read -r algo; do
+            [[ -n "$algo" ]] || continue
+            printf '  %s\n' "$algo"
+        done < <(stratum_declared_algorithms "$binary")
+
+        echo
+        print_info             "SQSYIIMP will restrict this binary to its declared algorithms."
+
+    else
+
+        print_warning             "This Stratum does not expose a valid complete capability API."
+
+        print_info "Capabilities are UNKNOWN."
+        print_info             "SQSYIIMP will not restrict its algorithm catalogue for this binary."
+        print_info             "No Stratum source code will be inspected."
+    fi
+}
+
+
+enforce_selected_stratum_capabilities() {
+    local rc=0
+    local algo=""
+
+    [[ -n "${SELECTED_STRATUM_BINARY:-}" ]] || return 0
+    [[ -n "${SELECTED_ALGO:-}" ]] || return 0
+
+    if stratum_supports_algorithm         "$SELECTED_STRATUM_BINARY"         "$SELECTED_ALGO"
+    then
+        rc=0
+    else
+        rc=$?
+    fi
+
+    case "$rc" in
+        0)
+            print_success                 "Capability check: $SELECTED_STRATUM_BINARY declares support for $SELECTED_ALGO"
+            ;;
+
+        1)
+            echo
+            print_warning                 "The selected Stratum '$SELECTED_STRATUM_BINARY' does not declare support for '$SELECTED_ALGO'."
+
+            echo
+            print_info "Algorithms declared by this Stratum:"
+
+            while IFS= read -r algo; do
+                [[ -n "$algo" ]] || continue
+                printf '  %s\n' "$algo"
+            done < <(
+                stratum_declared_algorithms                     "$SELECTED_STRATUM_BINARY"
+            )
+
+            echo
+            fatal                 "Choose another Stratum binary or an algorithm declared by this Stratum."
+            ;;
+
+        2)
+            print_info                 "Capability API unavailable for $SELECTED_STRATUM_BINARY; capabilities are unknown and SQSYIIMP will not restrict $SELECTED_ALGO."
+            ;;
+
+        *)
+            fatal "Unexpected capability status: $rc"
+            ;;
+    esac
+}
+
+
 get_pool_coinbase_tag() {
     local server_config="/etc/yiimp/serverconfig.php"
     local tag=""
@@ -2830,6 +3022,13 @@ main() {
             done < <(list_stratum_binaries | sort -u)
             exit 0
             ;;
+        # SQS_STRATUM_CAPABILITY_INTEGRATION_V1
+        --capabilities|--stratum-capabilities)
+            print_manager_header
+            print_stratum_capabilities "${2:-}"
+            exit 0
+            ;;
+
         --algos|-a|--list-algorithms|--list-algos)
             print_manager_header
             echo
@@ -2844,6 +3043,7 @@ Usage:
   addport <SYMBOL> <ALGO> [STRATUM_BINARY]
   addport --stratums
   addport --algos
+  addport --capabilities STRATUM_BINARY
   addport --refresh-wrapper COIN
   addport --refresh-wrappers
 
@@ -2853,6 +3053,7 @@ Examples:
   addport ETC etchash stratum-kp
   addport --stratums
   addport --algos
+  addport --capabilities stratum
 
 Algorithm templates are stored in:
 
@@ -2901,6 +3102,8 @@ EOF_HELP
 
     select_algorithm "$requested_algo"
     select_stratum_binary "$requested_binary"
+
+    enforce_selected_stratum_capabilities
 
     echo
     print_success "Selected algorithm: $SELECTED_ALGO"

@@ -4,6 +4,25 @@
 source /etc/yiimpool.conf
 source $STORAGE_ROOT/yiimp/.yiimp.conf
 
+# SQS_PUBLIC_CLI_FORWARD_V1
+#
+# Preserve the legacy global Stratum management command while
+# forwarding public binary introspection to the live Stratum.
+SQS_PUBLIC_CLI_BINARY="$STORAGE_ROOT/yiimp/site/stratum/stratum"
+
+case "${1:-}" in
+    --help|-h|--version|-V|--algos)
+        if [ ! -x "$SQS_PUBLIC_CLI_BINARY" ]; then
+            echo "ERROR: Stratum binary not found: $SQS_PUBLIC_CLI_BINARY" >&2
+            exit 127
+        fi
+
+        exec "$SQS_PUBLIC_CLI_BINARY" "$1"
+        ;;
+esac
+
+unset SQS_PUBLIC_CLI_BINARY
+
 # Define variables
 STRATUM_DIR=$STORAGE_ROOT/yiimp/site/stratum
 LOG_DIR=$STORAGE_ROOT/yiimp/site/log

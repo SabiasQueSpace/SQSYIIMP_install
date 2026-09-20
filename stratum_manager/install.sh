@@ -52,6 +52,20 @@ migrate_legacy_algorithm_templates() {
     local template_alias=""
     local alias_target=""
 
+    #
+    # Remove deprecated COSA/Cosanta artifacts from legacy installations.
+    # Exact names only.
+    #
+    for name in cosa.conf cosanta.conf; do
+        stem="${name%.conf}"
+
+        sudo rm -f -- \
+            "$CONFIG_DIR/$name" \
+            "$CONFIG_DIR/$stem" \
+            "$TEMPLATE_DIR/$name" \
+            "$TEMPLATE_DIR/$stem"
+    done
+
     sudo install -d \
         -o "$STORAGE_USER" \
         -g "$STORAGE_GROUP" \

@@ -151,7 +151,18 @@ main() {
     #   resolved file : /home/crypto-data/yiimp/site/stratum/config/ltc.scrypt.conf
     #   binary arg    : config/ltc.scrypt
     config_arg="config/${config_path##*/}"
-    config_arg="${config_arg%.conf}"
+
+    # Ethash/Etchash use the real .conf path.  The unified Stratum
+    # accepts these configurations directly and must not receive
+    # the legacy extensionless alias.
+    case "${config_path##*/}" in
+        *.ethash.conf|*.etchash.conf)
+            config_arg="$config_path"
+            ;;
+        *)
+            config_arg="${config_arg%.conf}"
+            ;;
+    esac
 
     while true; do
         (

@@ -40,7 +40,10 @@ if [[ ("$GETPORT" == "CREATECOIN") ]]; then
 	CREATECOIN="true"
 fi
 
-cd ${PATH_STRATUM}/config
+CONFIG_DIR="${PATH_STRATUM}/config"
+TEMPLATE_DIR="${PATH_STRATUM_TEMPLATES:-${CONFIG_DIR}/templates}"
+[[ -d "$TEMPLATE_DIR" ]] || TEMPLATE_DIR="$CONFIG_DIR"
+cd "$CONFIG_DIR"
 
 echo -e "$YELLOW addport will randomly selects an open port for the coin between ports 2768 and 6999 and open the port in UFW. ${NC}"
 
@@ -69,7 +72,7 @@ else
 	export LC_TYPE=en_US.UTF-8
 	export NCURSES_NO_UTF8_ACS=1
 
-	convertlistalgos=$(find $STORAGE_ROOT/yiimp/site/stratum/config/ -mindepth 1 -maxdepth 1 -type f -not -name '.*' -not -name '*.sh' -not -name '*.log' -not -name 'stratum.*' -not -name '*.*.*' -iname '*.conf' -execdir basename -s '.conf' {} +);
+	convertlistalgos=$(find "$TEMPLATE_DIR" -mindepth 1 -maxdepth 1 -type f -not -name '.*' -not -name '*.sh' -not -name '*.log' -not -name 'stratum.*' -not -name '*.*.*' -iname '*.conf' -execdir basename -s '.conf' {} +);
 	optionslistalgos=$(echo -e "${convertlistalgos}" | awk '{ printf "%s on\n", $1}' | sort | uniq | grep [[:alnum:]])
 
 	DIALOGFORLISTALGOS=${DIALOGFORLISTALGOS=dialog}
@@ -125,8 +128,8 @@ if [ -f $STORAGE_ROOT/yiimp/site/stratum/config/stratum.${coinsymbollower} ]; th
 		echo
 		exit 0
 	fi
-if [ ! -f $STORAGE_ROOT/yiimp/site/stratum/config/$coinalgo.conf ]; then
-  echo -e "$YELLOW Sorry that algo config file doesn't exist in $RED $STORAGE_ROOT/yiimp/site/stratum/config/ $YELLOW please double check and try again. ${NC}"
+if [ ! -f "$TEMPLATE_DIR/$coinalgo.conf" ]; then
+  echo -e "$YELLOW Sorry that algo template does not exist in $RED $TEMPLATE_DIR/ $YELLOW please double check and try again. ${NC}"
   exit 0
 fi
 fi
@@ -153,7 +156,7 @@ done
 fi
 
 # Copy the default algo.conf to the new symbol.algo.conf
-sudo cp -r $coinalgo.conf $coinsymbollower.$coinalgo.conf
+sudo cp -r "$TEMPLATE_DIR/$coinalgo.conf" "$CONFIG_DIR/$coinsymbollower.$coinalgo.conf"
 
 # Insert the port in to the new symbol.algo.conf
 sudo sed -i '/port/c\port = '${coinport}'' $coinsymbollower.$coinalgo.conf
@@ -171,13 +174,13 @@ include = '${coinsymbol}'' $coinsymbollower.$coinalgo.conf
 fi
 
 #Again preventing asshat duplications...
-if ! grep -Fxq "exclude = ${coinsymbol}" "$coinalgo.conf"; then
-# Insert the exclude in to algo.conf
+if ! grep -Fxq "exclude = ${coinsymbol}" "$TEMPLATE_DIR/$coinalgo.conf"; then
+# Insert the exclude in to the algorithm template
   sudo sed -i -e '$a\
 [WALLETS]\
-exclude = '${coinsymbol}'' $coinalgo.conf
+exclude = '${coinsymbol}'' "$TEMPLATE_DIR/$coinalgo.conf"
 else
-  echo -e "$YELLOW ${coinsymbol} is already in $coinalgo.conf, skipping... Which means you are trying to run this multiple times for the same coin. ${NC}"
+  echo -e "$YELLOW ${coinsymbol} is already in $TEMPLATE_DIR/$coinalgo.conf, skipping... Which means you are trying to run this multiple times for the same coin. ${NC}"
   echo
 fi
 

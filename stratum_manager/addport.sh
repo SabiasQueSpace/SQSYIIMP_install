@@ -181,6 +181,7 @@ sqsyiimp_ensure_runtime_alias() {
     local base=""
     local alias_path=""
     local target=""
+    local legacy_backup=""
 
     [[ -f "$conf_path" ]] || return 0
 
@@ -192,6 +193,14 @@ sqsyiimp_ensure_runtime_alias() {
         *) return 0 ;;
     esac
 
+    #
+    # Canonical layout:
+    #
+    #   coin.algorithm.conf
+    #   coin.algorithm -> coin.algorithm.conf
+    #
+    # Never maintain two independent runtime configuration copies.
+    #
     if [[ -L "$alias_path" ]]; then
 
         target="$(readlink "$alias_path" 2>/dev/null || true)"
@@ -204,8 +213,35 @@ sqsyiimp_ensure_runtime_alias() {
         return 0
     fi
 
+    #
+    # Migrate the legacy layout where coin.algorithm was a real file.
+    #
+    if [[ -f "$alias_path" ]]; then
+
+        if sudo cmp -s "$alias_path" "$conf_path"; then
+            echo "INFO: replacing identical legacy config with compatibility symlink:"
+            echo "      $alias_path"
+        else
+            legacy_backup="${alias_path}.legacy-$(date +%Y%m%d-%H%M%S)"
+
+            echo "WARNING: legacy runtime config differs from canonical .conf:" >&2
+            echo "         $alias_path" >&2
+            echo "         preserving old copy as:" >&2
+            echo "         $legacy_backup" >&2
+
+            sudo cp -a "$alias_path" "$legacy_backup"
+        fi
+
+        sudo rm -f -- "$alias_path"
+        sudo ln -s "$base" "$alias_path"
+        return 0
+    fi
+
+    #
+    # Do not replace directories or other unexpected filesystem objects.
+    #
     if [[ -e "$alias_path" ]]; then
-        echo "WARNING: Stratum compatibility path already exists and is not a symlink:" >&2
+        echo "WARNING: compatibility path exists but is neither a file nor symlink:" >&2
         echo "         $alias_path" >&2
         return 0
     fi
@@ -1126,6 +1162,7 @@ WRAPPER
 ############################################################
 
 CONFIG_DIR="$STRATUM_DIR/config"
+TEMPLATE_DIR="$CONFIG_DIR/templates"
 SERVICE_DIR="$STRATUM_DIR/services"
 MANAGED_DIR="$STRATUM_DIR/managed"
 RUNNER="$STRATUM_DIR/runner.sh"
@@ -1135,6 +1172,7 @@ print_manager_header() {
     print_header "Stratum Port Manager"
     print_info "Stratum directory : $STRATUM_DIR"
     print_info "Config directory  : $CONFIG_DIR"
+    print_info "Template directory: $TEMPLATE_DIR"
 }
 
 fatal() {
@@ -1142,10 +1180,81 @@ fatal() {
     exit 1
 }
 
+migrate_legacy_algorithm_templates() {
+    local source=""
+    local name=""
+    local stem=""
+    local target=""
+    local legacy_alias=""
+    local template_alias=""
+    local alias_target=""
+
+    sudo install -d \
+        -o "${STORAGE_USER:-crypto-data}" \
+        -g "${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" \
+        -m 0755 \
+        "$TEMPLATE_DIR"
+
+    shopt -s nullglob
+    for source in "$CONFIG_DIR"/*.conf; do
+        name="${source##*/}"
+        stem="${name%.conf}"
+
+        # Keep dedicated coin configs in config/.  Legacy algorithm
+        # templates are the one-part *.conf files historically listed
+        # by addport (sha256d.conf, kawpow.conf, x11.conf, ...).
+        [[ "$stem" == *.* ]] && continue
+
+        target="$TEMPLATE_DIR/$name"
+
+        if [[ ! -e "$target" ]]; then
+            sudo mv "$source" "$target"
+            sudo chown \
+                "${STORAGE_USER:-crypto-data}:${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" \
+                "$target"
+            print_info "Moved legacy algorithm template: $name -> config/templates/"
+        elif sudo cmp -s "$source" "$target"; then
+            sudo rm -f "$source"
+            sudo chown \
+                "${STORAGE_USER:-crypto-data}:${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}" \
+                "$target"
+            print_info "Removed duplicate legacy template: $name"
+        else
+            print_warning "Template exists in both config/ and config/templates/: $name"
+            print_warning "Using config/templates/$name; legacy copy was preserved"
+            continue
+        fi
+
+        # Keep a suffix-less generic compatibility alias with the template
+        # when the legacy layout had one (for example config/kawpow ->
+        # kawpow.conf). Dedicated coin aliases contain a dot in their stem and
+        # are intentionally left in config/.
+        legacy_alias="$CONFIG_DIR/$stem"
+        template_alias="$TEMPLATE_DIR/$stem"
+
+        if [[ -L "$legacy_alias" ]]; then
+            alias_target="$(readlink "$legacy_alias" 2>/dev/null || true)"
+            if [[ "$alias_target" == "$name" ||
+                  "$alias_target" == "$CONFIG_DIR/$name" ||
+                  "$alias_target" == */config/"$name" ]]; then
+                sudo rm -f "$legacy_alias"
+                sudo ln -sfn "$name" "$template_alias"
+            else
+                print_warning "Preserving unexpected legacy template symlink: $legacy_alias -> $alias_target"
+            fi
+        elif [[ -f "$legacy_alias" && -f "$target" ]] && sudo cmp -s "$legacy_alias" "$target"; then
+            sudo rm -f "$legacy_alias"
+            sudo ln -sfn "$name" "$template_alias"
+        fi
+    done
+    shopt -u nullglob
+}
+
 ensure_layout() {
     [ -d "$STRATUM_DIR" ] || fatal "Stratum directory not found: $STRATUM_DIR"
     [ -d "$CONFIG_DIR" ] || fatal "Stratum config directory not found: $CONFIG_DIR"
     sudo mkdir -p "$SERVICE_DIR" "$MANAGED_DIR"
+    migrate_legacy_algorithm_templates
 }
 
 find_open_port() {
@@ -1164,8 +1273,8 @@ find_open_port() {
 
 
 ensure_sha256d_template() {
-    local source="$CONFIG_DIR/sha.conf"
-    local target="$CONFIG_DIR/sha256d.conf"
+    local source="$TEMPLATE_DIR/sha.conf"
+    local target="$TEMPLATE_DIR/sha256d.conf"
     local runtime_user="${STORAGE_USER:-crypto-data}"
     local runtime_group="${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}"
 
@@ -1215,8 +1324,8 @@ ensure_sha256d_template() {
 
 
 ensure_ethash_templates() {
-    local ethash_target="$CONFIG_DIR/ethash.conf"
-    local etchash_target="$CONFIG_DIR/etchash.conf"
+    local ethash_target="$TEMPLATE_DIR/ethash.conf"
+    local etchash_target="$TEMPLATE_DIR/etchash.conf"
     local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
     local runtime_user="${STORAGE_USER:-crypto-data}"
     local runtime_group="${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}"
@@ -1315,7 +1424,7 @@ EOF_ETCHASH
 
 
 list_algorithms() {
-    find "$CONFIG_DIR" \
+    find "$TEMPLATE_DIR" \
         -mindepth 1 -maxdepth 1 -type f \
         -not -name '.*' \
         -not -name '*.sh' \
@@ -1336,7 +1445,7 @@ select_algorithm() {
     local i
 
     mapfile -t algorithms < <(list_algorithms)
-    [ "${#algorithms[@]}" -gt 0 ] || fatal "No base algorithm configs were found in $CONFIG_DIR"
+    [ "${#algorithms[@]}" -gt 0 ] || fatal "No algorithm templates were found in $TEMPLATE_DIR"
 
     if [ -n "$requested" ]; then
         for i in "${algorithms[@]}"; do
@@ -1345,7 +1454,7 @@ select_algorithm() {
                 return 0
             fi
         done
-        fatal "Algorithm config not found: $requested.conf"
+        fatal "Algorithm template not found: $TEMPLATE_DIR/$requested.conf"
     fi
 
     if command -v dialog >/dev/null 2>&1 && [ -t 0 ] && [ -t 1 ]; then
@@ -1839,7 +1948,7 @@ except (ValueError, TypeError):
 }
 
 get_template_difficulty() {
-    local base_config="$CONFIG_DIR/$SELECTED_ALGO.conf"
+    local base_config="$TEMPLATE_DIR/$SELECTED_ALGO.conf"
     local value=""
 
     value="$(get_simple_key "$base_config" "STRATUM" "difficulty" || true)"
@@ -2301,13 +2410,13 @@ choose_existing_port() {
 }
 
 create_coin_config() {
-    local base_config="$CONFIG_DIR/$SELECTED_ALGO.conf"
+    local base_config="$TEMPLATE_DIR/$SELECTED_ALGO.conf"
     local coin_config="$CONFIG_DIR/$coinsymbollower.$SELECTED_ALGO.conf"
     local existing=false
     local answer
     local other
 
-    [ -f "$base_config" ] || fatal "Base algorithm config not found: $base_config"
+    [ -f "$base_config" ] || fatal "Algorithm template not found: $base_config"
 
     if [ -f "$coin_config" ]; then
         existing=true
@@ -2744,6 +2853,14 @@ Examples:
   addport ETC etchash stratum-kp
   addport --stratums
   addport --algos
+
+Algorithm templates are stored in:
+
+  $STORAGE_ROOT/yiimp/site/stratum/config/templates
+
+Dedicated coin configs remain in:
+
+  $STORAGE_ROOT/yiimp/site/stratum/config
 
 The selected executable is stored in the generated config as:
 

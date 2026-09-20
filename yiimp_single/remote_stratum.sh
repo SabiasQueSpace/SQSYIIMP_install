@@ -87,20 +87,31 @@ bash "$HOME/sqsyiimp/stratum_manager/install.sh"
 
 print_header "Stratum Database Configuration"
 print_status "Updating stratum configuration with database credentials"
-cd "$STORAGE_ROOT/yiimp/site/stratum/config"
+CONFIG_DIR="$STORAGE_ROOT/yiimp/site/stratum/config"
+TEMPLATE_DIR="$CONFIG_DIR/templates"
+cd "$CONFIG_DIR"
 
-sudo sed -i "s/password = tu8tu5/password = $BlocknotifyPassword/g" *.conf
-sudo sed -i "s/server = yaamp.com/server = $StratumURL/g" *.conf
-if [[ ("$wireguard" == "true") ]]; then
-    print_info "Configuring for WireGuard: Using internal IP ${DBInternalIP}"
-    sudo sed -i "s/host = yaampdb/host = $DBInternalIP/g" *.conf
-else
-    print_info "Configuring for local setup: Using localhost"
-    sudo sed -i "s/host = yaampdb/host = localhost/g" *.conf
+mapfile -t STRATUM_CONF_FILES < <(
+    find "$CONFIG_DIR" -maxdepth 2 -type f -name '*.conf' \
+        ! -name '*.backup-*' ! -name '*.bak*' ! -name '*.old*' | sort
+)
+
+if ((${#STRATUM_CONF_FILES[@]} > 0)); then
+    sudo sed -i "s/password = tu8tu5/password = $BlocknotifyPassword/g" "${STRATUM_CONF_FILES[@]}"
+    sudo sed -i "s/server = yaamp.com/server = $StratumURL/g" "${STRATUM_CONF_FILES[@]}"
+
+    if [[ ("$wireguard" == "true") ]]; then
+        print_info "Configuring for WireGuard: Using internal IP ${DBInternalIP}"
+        sudo sed -i "s/host = yaampdb/host = $DBInternalIP/g" "${STRATUM_CONF_FILES[@]}"
+    else
+        print_info "Configuring for local setup: Using localhost"
+        sudo sed -i "s/host = yaampdb/host = localhost/g" "${STRATUM_CONF_FILES[@]}"
+    fi
+
+    sudo sed -i "s/database = yaamp/database = $YiiMPDBName/g" "${STRATUM_CONF_FILES[@]}"
+    sudo sed -i "s/username = root/username = $StratumDBUser/g" "${STRATUM_CONF_FILES[@]}"
+    sudo sed -i "s/password = patofpaq/password = $StratumUserDBPassword/g" "${STRATUM_CONF_FILES[@]}"
 fi
-sudo sed -i "s/database = yaamp/database = $YiiMPDBName/g" *.conf
-sudo sed -i "s/username = root/username = $StratumDBUser/g" *.conf
-sudo sed -i "s/password = patofpaq/password = $StratumUserDBPassword/g" *.conf
 
 print_status "Synchronizing Stratum coinbase identity from YiiMP"
 if POOL_COINBASE_TAG="$(get_pool_coinbase_tag)"; then
@@ -115,7 +126,8 @@ fi
 
 print_status "Setting directory permissions"
 sudo setfacl -m u:"$USER":rwx "$STORAGE_ROOT/yiimp/site/stratum/"
-sudo setfacl -m u:"$USER":rwx "$STORAGE_ROOT/yiimp/site/stratum/config"
+sudo setfacl -m u:"$USER":rwx "$CONFIG_DIR"
+[ -d "$TEMPLATE_DIR" ] && sudo setfacl -m u:"$USER":rwx "$TEMPLATE_DIR"
 
 # copy blocknotify to daemon servers
 # set daemon user and password
@@ -168,7 +180,8 @@ print_header "Installation Summary"
 print_success "Remote stratum server build completed successfully"
 print_info "Stratum URL: $StratumURL"
 print_info "Installation Directory: $STORAGE_ROOT/yiimp/site/stratum"
-print_info "Configuration Directory: $STORAGE_ROOT/yiimp/site/stratum/config"
+print_info "Coin Config Directory : $CONFIG_DIR"
+print_info "Template Directory    : $TEMPLATE_DIR"
 print_info "Blocknotify Location: /usr/bin/blocknotify"
 
 print_divider

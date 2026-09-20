@@ -12,7 +12,13 @@ The primary command is intentionally short:
 addport
 ```
 
-Interactive `addport` lists the available algorithm templates and the executable Stratum binaries found in:
+Interactive `addport` reads algorithm templates from:
+
+```text
+/home/crypto-data/yiimp/site/stratum/config/templates
+```
+
+and lists executable Stratum binaries from:
 
 ```text
 /home/crypto-data/yiimp/site/stratum
@@ -29,8 +35,13 @@ addport ETC etchash stratum-kp
 removecoin GAEL
 ```
 
-SQSYIIMP also installs coin-neutral `ethash.conf` and `etchash.conf` base
-templates plus a dedicated `vbc.ethash.conf` when they are not already present. Both inherit the configured
+SQSYIIMP keeps coin-neutral algorithm templates under `config/templates/`.
+Dedicated per-coin configurations remain directly under `config/`. During upgrades,
+legacy one-part templates such as `sha256d.conf`, `kawpow.conf`, `ethash.conf` and
+`etchash.conf` are migrated into the template directory without moving files such
+as `btc.sha256d.conf` or `vbc.ethash.conf`. SQSYIIMP also installs coin-neutral
+`ethash.conf` and `etchash.conf` templates plus a dedicated `vbc.ethash.conf` when
+they are not already present. Both inherit the configured
 pool/SQL credentials from `.yiimp.conf`. The VBC config uses TCP port `6453`,
 initial difficulty `0.1`, `diff_min = 0.05`, `diff_max = 8192`,
 `max_ttf = 50000`, and `include = VBC`; the base template remains coin-neutral so
@@ -61,19 +72,19 @@ The older `sqs-stratum-port` and `sqs-stratum-<coin>` names remain as compatibil
 `removecoin` is dry-run by default:
 
 ```bash
-removecoin COSA
+removecoin MYC
 ```
 
 Remove only the managed Stratum configuration/controller:
 
 ```bash
-sudo removecoin COSA --apply
+sudo removecoin MYC --apply
 ```
 
 Remove the Stratum and a registered daemon/node:
 
 ```bash
-sudo removecoin COSA --apply --purge-node --coin-name cosanta
+sudo removecoin MYC --apply --purge-node --coin-name mycoin
 ```
 
 The node purge may remove the daemon datadir and wallet. Use `--keep-wallet`
@@ -108,7 +119,7 @@ their systemd service, local JSON-RPC endpoint and P2P port so `removecoin
 - `addport.sh` — creates or updates a dedicated coin port/config and lets the operator select the Stratum binary.
 - `removecoin.sh` — dry-runs or safely removes a managed coin Stratum, with optional node/backups/DB purge.
 - `runner.sh` — reads `[RUNTIME] binary` and launches that executable.
-- `install.sh` — installs or refreshes the manager and runtime.
+- `install.sh` — installs or refreshes the manager, migrates legacy algorithm templates into `config/templates/`, and preserves dedicated coin configs in `config/`.
 - `install-runtime.sh` — installs the live runner in the Stratum directory.
 
 <!-- SQSYIIMP_ETHASH_ETCHASH_STRATUM_DOCS_START -->

@@ -86,7 +86,7 @@ DEFAULT_blckntifypass=""
 input_box "Blocknotify Password" \
 "Enter the existing blocknotify password from the first stratum server.
 \n\nTo retrieve it, log in to your first stratum server and run:
-\n\ncat $STORAGE_ROOT/yiimp/site/stratum/config/a5a.conf
+\n\ncat $STORAGE_ROOT/yiimp/site/stratum/config/templates/a5a.conf
 \n\nThe blocknotify password is the first password in the TCP section.
 \n\nUse SHIFT+RightMouseClick or SHIFT+INSERT to paste.
 \n\nBlocknotify Password:" \

@@ -360,12 +360,19 @@ done
 print_msg status "Checking stratum"
 check_file_exists "$STORAGE_ROOT/yiimp/site/stratum" 1
 stratum_conf_count=0
+stratum_template_count=0
 if [ -d "$STORAGE_ROOT/yiimp/site/stratum/config" ]; then
-    stratum_conf_count=$(find "$STORAGE_ROOT/yiimp/site/stratum/config" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l | tr -d ' ')
-    if [ "${stratum_conf_count:-0}" -gt 0 ]; then
-        record_success "Found ${stratum_conf_count} stratum config file(s)"
+    stratum_conf_count=$(find "$STORAGE_ROOT/yiimp/site/stratum/config" -maxdepth 1 -type f -name '*.*.conf' 2>/dev/null | wc -l | tr -d ' ')
+    stratum_template_count=$(find "$STORAGE_ROOT/yiimp/site/stratum/config/templates" -maxdepth 1 -type f -name '*.conf' 2>/dev/null | wc -l | tr -d ' ')
+    if [ "${stratum_template_count:-0}" -gt 0 ]; then
+        record_success "Found ${stratum_template_count} Stratum algorithm template(s)"
     else
-        record_warning "No stratum *.conf files in config directory yet"
+        record_warning "No Stratum algorithm templates found in config/templates"
+    fi
+    if [ "${stratum_conf_count:-0}" -gt 0 ]; then
+        record_success "Found ${stratum_conf_count} dedicated Stratum coin config file(s)"
+    else
+        record_warning "No dedicated coin *.conf files in config directory yet"
     fi
 else
     record_warning "Stratum config directory missing"

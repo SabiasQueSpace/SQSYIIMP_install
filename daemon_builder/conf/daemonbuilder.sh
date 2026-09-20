@@ -21,6 +21,7 @@ if [[ -r "$STORAGE_ROOT/yiimp/.yiimp.conf" ]]; then
 fi
 
 path_stratum="$STORAGE_ROOT/yiimp/site/stratum"
+path_stratum_templates="$path_stratum/config/templates"
 absolutepath="$STORAGE_ROOT"
 
 installtoserver=daemon_builder

@@ -25,7 +25,7 @@ if [ ! -f "$RUNNER_SOURCE" ]; then
     exit 1
 fi
 
-sudo install -d     -o "$STORAGE_USER"     -g "$STORAGE_GROUP"     -m 755     "$STRATUM_DIR"     "$STRATUM_DIR/config"     "$STRATUM_DIR/services"
+sudo install -d     -o "$STORAGE_USER"     -g "$STORAGE_GROUP"     -m 755     "$STRATUM_DIR"     "$STRATUM_DIR/config"     "$STRATUM_DIR/config/templates"     "$STRATUM_DIR/services"
 
 sudo install     -o "$STORAGE_USER"     -g "$STORAGE_GROUP"     -m 755     "$RUNNER_SOURCE"     "$STRATUM_DIR/runner.sh"
 

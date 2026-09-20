@@ -21,8 +21,8 @@ declare -A ORIGINAL_HASH=(
 
 declare -A PATCHED_HASH=(
   [Makefile]="d03f77358666a8fa7f15dce2face25e9c1b4f9439eeb11df7948d11633baddca"
-  [stratum.cpp]="0b0b9741758fa4c0a306455e4b92e23368fcec17c65d98eb31078d748ae21a30"
-  [stratum.h]="00ccd234d9a14d6c70d7d34a1933d241ac30a142dccb9db875f1ebb9d00922ca"
+  [stratum.cpp]="dd7c5813512c89c524ee456536dc4263ae0b9fd78965ab1a482b42cb86cdb83b"
+  [stratum.h]="5a70588d6891c0c3359b454f113e8d65aad3ab7092541acf5568de8357e4511e"
   [job.cpp]="ad5cee18afd5af36b6a558709ef813ea10655fab00973a4029c24b7fc099176b"
   [ethash.cpp]="900f7c0550471335ce265b6796cfa8bfeb5394db808689752d2419361dcead7a"
   [etc_etchash_bridge.c]="89b2a3c341b350f332802db95c31fd957e35c5a2882fa3fc42c54bef394ce5e3"

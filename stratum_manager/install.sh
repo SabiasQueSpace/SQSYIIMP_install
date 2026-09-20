@@ -15,6 +15,8 @@ STORAGE_USER="${STORAGE_USER:-crypto-data}"
 STORAGE_GROUP="${STORAGE_GROUP:-${STORAGE_USER}}"
 STORAGE_ROOT="${STORAGE_ROOT:-/home/${STORAGE_USER}}"
 STRATUM_DIR="$STORAGE_ROOT/yiimp/site/stratum"
+CONFIG_DIR="$STRATUM_DIR/config"
+TEMPLATE_DIR="$CONFIG_DIR/templates"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANAGER_SOURCE="$SCRIPT_DIR/addport.sh"
 REMOVE_SOURCE="$SCRIPT_DIR/removecoin.sh"
@@ -41,10 +43,78 @@ ETHASH_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/ethash.conf"
     exit 1
 }
 
+migrate_legacy_algorithm_templates() {
+    local source=""
+    local name=""
+    local stem=""
+    local target=""
+    local legacy_alias=""
+    local template_alias=""
+    local alias_target=""
+
+    sudo install -d \
+        -o "$STORAGE_USER" \
+        -g "$STORAGE_GROUP" \
+        -m 0755 \
+        "$TEMPLATE_DIR"
+
+    shopt -s nullglob
+    for source in "$CONFIG_DIR"/*.conf; do
+        name="${source##*/}"
+        stem="${name%.conf}"
+
+        # Dedicated coin configs contain at least one dot before .conf
+        # (for example btc.sha256d.conf or vbc.ethash.conf).  The old
+        # addport algorithm catalogue intentionally used only one-part
+        # names such as sha256d.conf, kawpow.conf and x11.conf.
+        [[ "$stem" == *.* ]] && continue
+
+        target="$TEMPLATE_DIR/$name"
+
+        if [[ ! -e "$target" ]]; then
+            sudo mv "$source" "$target"
+            sudo chown "$STORAGE_USER:$STORAGE_GROUP" "$target"
+            echo "Moved Stratum algorithm template: $name -> config/templates/"
+        elif sudo cmp -s "$source" "$target"; then
+            sudo rm -f "$source"
+            sudo chown "$STORAGE_USER:$STORAGE_GROUP" "$target"
+            echo "Removed duplicate legacy template: $source"
+        else
+            echo "WARNING: template exists in both locations with different contents:" >&2
+            echo "         legacy: $source" >&2
+            echo "         active: $target" >&2
+            echo "         preserving both; resolve manually before deleting the legacy copy" >&2
+            continue
+        fi
+
+        # Move the optional suffix-less compatibility alias with its template.
+        # Dedicated coin aliases contain a dot in their stem and never reach
+        # this branch.
+        legacy_alias="$CONFIG_DIR/$stem"
+        template_alias="$TEMPLATE_DIR/$stem"
+
+        if [[ -L "$legacy_alias" ]]; then
+            alias_target="$(readlink "$legacy_alias" 2>/dev/null || true)"
+            if [[ "$alias_target" == "$name" ||
+                  "$alias_target" == "$CONFIG_DIR/$name" ||
+                  "$alias_target" == */config/"$name" ]]; then
+                sudo rm -f "$legacy_alias"
+                sudo ln -sfn "$name" "$template_alias"
+            else
+                echo "WARNING: preserving unexpected legacy template symlink: $legacy_alias -> $alias_target" >&2
+            fi
+        elif [[ -f "$legacy_alias" && -f "$target" ]] && sudo cmp -s "$legacy_alias" "$target"; then
+            sudo rm -f "$legacy_alias"
+            sudo ln -sfn "$name" "$template_alias"
+        fi
+    done
+    shopt -u nullglob
+}
+
 install_ethash_templates() {
-    local base_target="$STRATUM_DIR/config/ethash.conf"
-    local etchash_target="$STRATUM_DIR/config/etchash.conf"
-    local vbc_target="$STRATUM_DIR/config/vbc.ethash.conf"
+    local base_target="$TEMPLATE_DIR/ethash.conf"
+    local etchash_target="$TEMPLATE_DIR/etchash.conf"
+    local vbc_target="$CONFIG_DIR/vbc.ethash.conf"
     local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
     local db_host="localhost"
     local rendered=""
@@ -183,8 +253,10 @@ sudo install -d \
     -o "$STORAGE_USER" \
     -g "$STORAGE_GROUP" \
     -m 0755 \
-    "$STRATUM_DIR/config"
+    "$CONFIG_DIR" \
+    "$TEMPLATE_DIR"
 
+migrate_legacy_algorithm_templates
 install_ethash_templates
 bash "$RUNTIME_INSTALLER" "$STRATUM_DIR"
 

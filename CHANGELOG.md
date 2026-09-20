@@ -6,6 +6,7 @@ All notable changes to SQSYIIMP are documented in this file.
 
 ### Added
 
+- Separate reusable Stratum algorithm templates into `site/stratum/config/templates/` while keeping dedicated coin configs in `site/stratum/config/`; `addport`, DaemonBuilder, installer, removal cleanup, health checks and fresh/remote Stratum setup now understand the new layout and migrate legacy one-part templates safely.
 - Let the Ethash/Etchash DaemonBuilder wizard use an existing reward address or create a new encrypted Geth/Core-Geth pool wallet directly inside the coin datadir; the temporary password file is removed immediately and SQSYIIMP never stores the wallet password.
 - Add a dedicated DaemonBuilder wizard for Geth/Core-Geth compatible Ethash/Etchash coins: existing or downloaded Linux binaries, optional genesis/network arguments, local-only JSON-RPC, pruned `gcmode=full` profile when supported, per-coin systemd service, RPC helper, managed metadata and automatic handoff to `addport`.
 - Add coin-neutral `etchash.conf` provisioning alongside `ethash.conf`, and let `addport` safely bootstrap missing Ethash/Etchash templates from the existing SQSYIIMP pool/SQL credentials without overwriting administrator configs.

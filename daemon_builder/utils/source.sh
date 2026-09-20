@@ -396,7 +396,12 @@ if [[ ! "$coinsymbol" =~ ^[A-Z0-9][A-Z0-9_-]*$ ]]; then
     exit 1
 fi
 
-convertlistalgos=$(find ${PATH_STRATUM}/config/ -mindepth 1 -maxdepth 1 -type f -not -name '.*' -not -name '*.sh' -not -name '*.log' -not -name 'stratum.*' -not -name '*.*.*' -iname '*.conf' -execdir basename -s '.conf' {} +);
+STRATUM_TEMPLATE_DIR="${PATH_STRATUM}/config/templates"
+if [[ ! -d "$STRATUM_TEMPLATE_DIR" ]]; then
+    # Compatibility with installations that have not run the template-layout migration yet.
+    STRATUM_TEMPLATE_DIR="${PATH_STRATUM}/config"
+fi
+convertlistalgos=$(find "$STRATUM_TEMPLATE_DIR" -mindepth 1 -maxdepth 1 -type f -not -name '.*' -not -name '*.sh' -not -name '*.log' -not -name 'stratum.*' -not -name '*.*.*' -iname '*.conf' -execdir basename -s '.conf' {} +);
 optionslistalgos=$(echo -e "${convertlistalgos}" | awk '{ printf "%s on\n", $1}' | sort | uniq | grep [[:alnum:]])
 
 DIALOGFORLISTALGOS=${DIALOGFORLISTALGOS=dialog}

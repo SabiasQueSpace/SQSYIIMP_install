@@ -26,6 +26,7 @@ fi
 STRATUM_USER="${YIIMP_USER:-$STORAGE_USER}"
 STRATUM_DIR="${PATH_STRATUM:-$STORAGE_ROOT/yiimp/site/stratum}"
 CONFIG_DIR="$STRATUM_DIR/config"
+TEMPLATE_DIR="$CONFIG_DIR/templates"
 SERVICE_DIR="$STRATUM_DIR/services"
 MANAGED_DIR="$STRATUM_DIR/managed"
 MYSQL_CNF="$STORAGE_ROOT/yiimp/.my.cnf"
@@ -72,14 +73,14 @@ Options:
   --purge-db-data        With --purge-db, back up and delete dependent YiiMP
                          coin rows, then delete the coin row. Destructive.
   --yiimp-symbol SYMBOL  YiiMP DB symbol when it differs from the managed
-                         identifier (e.g. identifier cosa, DB symbol COSA)
+                         identifier (e.g. identifier myc, DB symbol MYC)
   --wallet-symbol SYMBOL Stratum wallet/include symbol when it differs from
-                         the YiiMP DB symbol (e.g. COSANTA)
-  --coin-name NAME       Canonical daemon/wallet name (e.g. cosanta)
-  --daemon NAME          Daemon binary basename (e.g. cosantad)
-  --cli NAME             CLI binary basename (e.g. cosanta-cli)
+                         the YiiMP DB symbol (e.g. MYCOIN)
+  --coin-name NAME       Canonical daemon/wallet name (e.g. mycoin)
+  --daemon NAME          Daemon binary basename (e.g. mycoind)
+  --cli NAME             CLI binary basename (e.g. mycoin-cli)
   --datadir PATH         Daemon datadir
-  --daemon-conf NAME     Daemon config basename (e.g. cosanta.conf)
+  --daemon-conf NAME     Daemon config basename (e.g. mycoin.conf)
   -y, --yes              Skip interactive destructive confirmation
   -h, --help             Show this help
 
@@ -94,11 +95,11 @@ Optional environment overrides:
   SQS_REMOVE_PROGRESS_INTERVAL
 
 Examples:
-  removecoin COSA
-  removecoin COSA --apply
-  removecoin COSA --apply --purge-node --coin-name cosanta
-  removecoin COSA --apply --purge-node --purge-backups --purge-db --coin-name cosanta
-  removecoin COSA --apply --purge-db --purge-db-data
+  removecoin MYC
+  removecoin MYC --apply
+  removecoin MYC --apply --purge-node --coin-name mycoin
+  removecoin MYC --apply --purge-node --purge-backups --purge-db --coin-name mycoin
+  removecoin MYC --apply --purge-db --purge-db-data
 
 Safety rules:
   * Unknown processes are never killed merely because they own a port.
@@ -1308,7 +1309,7 @@ fi
 # when the dedicated Stratum config was already removed and ALGO can no longer
 # be resolved on a retry.
 shopt -s nullglob
-for cfg in "$CONFIG_DIR"/*.conf; do
+for cfg in "$CONFIG_DIR"/*.conf "$TEMPLATE_DIR"/*.conf; do
     [[ -f "$cfg" ]] || continue
     remove_exact_wallet_exclude "$cfg" "$WALLET_SYMBOL_UPPER"
     if [[ "$YIIMP_SYMBOL_UPPER" != "$WALLET_SYMBOL_UPPER" ]]; then

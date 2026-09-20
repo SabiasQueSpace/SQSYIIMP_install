@@ -303,7 +303,6 @@ void sha3d_hash_hex(const char *input, char *output, unsigned int len);
 #include "algos/gr.h"
 #include "algos/heavyhash/heavyhash.h"
 #include "algos/anime.h"
-#include "algos/cosa.h"
 #include "algos/minotaurx.h"
 #include "algos/0x10.h"
 #include "algos/mike.h"

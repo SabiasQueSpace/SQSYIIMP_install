@@ -264,7 +264,7 @@ use `--purge-node`. This is intentionally destructive and requires an explicit
 confirmation:
 
 ```bash
-sudo removecoin COSA --apply --purge-node --coin-name cosanta
+sudo removecoin MYC --apply --purge-node --coin-name mycoin
 ```
 
 Useful safety options:
@@ -319,6 +319,17 @@ selection.
 ---
 
 ## Stratum Configuration
+
+SQSYIIMP separates reusable algorithm templates from dedicated coin configs:
+
+```text
+/home/crypto-data/yiimp/site/stratum/config/templates/<algorithm>.conf
+/home/crypto-data/yiimp/site/stratum/config/<coin>.<algorithm>.conf
+```
+
+`addport` and DaemonBuilder read the algorithm catalogue from `config/templates/`.
+Existing one-part legacy templates are migrated there automatically by the Stratum
+manager installer, while dedicated coin configurations remain in `config/`.
 
 A dedicated coin configuration can select its runtime binary.
 
@@ -683,7 +694,8 @@ The exact contents of individual directories may evolve as SQSYIIMP develops.
 | YiiMP data root | `/home/crypto-data/yiimp` |
 | YiiMP website | `/home/crypto-data/yiimp/site` |
 | YiiMP Stratum | `/home/crypto-data/yiimp/site/stratum` |
-| Stratum configurations | `/home/crypto-data/yiimp/site/stratum/config` |
+| Stratum coin configurations | `/home/crypto-data/yiimp/site/stratum/config` |
+| Stratum algorithm templates | `/home/crypto-data/yiimp/site/stratum/config/templates` |
 | Wallet data | `/home/crypto-data/wallets` |
 | DaemonBuilder runtime | `/home/crypto-data/daemon_builder` |
 | Installed version | `/etc/yiimpoolversion.conf` |

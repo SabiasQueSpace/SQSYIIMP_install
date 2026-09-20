@@ -94,9 +94,12 @@ import sys
 config_dir = Path(sys.argv[1])
 pool_name = sys.argv[2]
 files = sorted(config_dir.glob("*.conf"))
+template_dir = config_dir / "templates"
+if template_dir.is_dir():
+    files.extend(sorted(template_dir.glob("*.conf")))
 
 if not files:
-    raise SystemExit(f"No .conf files found in {config_dir}")
+    raise SystemExit(f"No .conf files found in {config_dir} or {config_dir / 'templates'}")
 
 prepared = []
 for path in files:

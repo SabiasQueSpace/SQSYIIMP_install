@@ -649,7 +649,6 @@ SQSYIIMP_install/
 │       ├── source.sh
 │       ├── menu.sh
 │       ├── menu2.sh
-│       ├── menu3.sh
 │       ├── upgrade.sh
 │       └── conf/
 │
@@ -923,9 +922,6 @@ Full manual:
 docs/ETHASH-ETCHASH-MANUAL.md
 ```
 
-Etchash Stratum integration:
-
-```text
-stratum_manager/patches/etchash-etc/
-```
+Stratum binaries and algorithm implementations are maintained independently from SQSYIIMP.
+SQSYIIMP provides configuration templates and runtime management without bundling Stratum source code.
 <!-- SQSYIIMP_ETHASH_ETCHASH_DOCS_END -->

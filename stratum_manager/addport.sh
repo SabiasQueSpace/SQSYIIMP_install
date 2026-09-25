@@ -1323,105 +1323,6 @@ ensure_sha256d_template() {
 }
 
 
-ensure_ethash_templates() {
-    local ethash_target="$TEMPLATE_DIR/ethash.conf"
-    local etchash_target="$TEMPLATE_DIR/etchash.conf"
-    local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
-    local runtime_user="${STORAGE_USER:-crypto-data}"
-    local runtime_group="${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}"
-    local db_host="localhost"
-    local stratum_url=""
-    local stratum_password=""
-    local db_name=""
-    local db_user=""
-    local db_password=""
-    local tmp=""
-
-    # Existing administrator templates are always authoritative.
-    if [[ -f "$ethash_target" && -f "$etchash_target" ]]; then
-        return 0
-    fi
-
-    if [[ -r "$yiimp_conf" ]]; then
-        # shellcheck disable=SC1090
-        source "$yiimp_conf"
-    fi
-
-    stratum_url="${StratumURL:-}"
-    stratum_password="${BlocknotifyPassword:-}"
-    db_name="${YiiMPDBName:-}"
-    db_user="${StratumDBUser:-}"
-    db_password="${StratumUserDBPassword:-}"
-    [[ -n "${DBInternalIP:-}" ]] && db_host="$DBInternalIP"
-
-    # A generic template must never be created with placeholder credentials.
-    # If credentials are unavailable, keep addport behavior unchanged and let
-    # the operator install the Stratum manager/template first.
-    if [[ -z "$stratum_url" || -z "$stratum_password" || -z "$db_name" ||
-          -z "$db_user" || -z "$db_password" ]]; then
-        return 0
-    fi
-
-    if [[ ! -f "$ethash_target" ]]; then
-        tmp="$(mktemp)"
-        cat > "$tmp" <<EOF_ETHASH
-[TCP]
-server = $stratum_url
-port = 6453
-password = $stratum_password
-
-[SQL]
-host = $db_host
-database = $db_name
-username = $db_user
-password = $db_password
-
-[STRATUM]
-algo = ethash
-difficulty = 0.1
-diff_min = 0.05
-diff_max = 8192
-max_ttf = 50000
-
-[WALLETS]
-EOF_ETHASH
-
-        sudo install -o "$runtime_user" -g "$runtime_group" -m 0640 \
-            "$tmp" "$ethash_target"
-        rm -f "$tmp"
-        print_success "Ethash algorithm template available"
-    fi
-
-    if [[ ! -f "$etchash_target" ]]; then
-        tmp="$(mktemp)"
-        cat > "$tmp" <<EOF_ETCHASH
-[TCP]
-server = $stratum_url
-port = 6454
-password = $stratum_password
-
-[SQL]
-host = $db_host
-database = $db_name
-username = $db_user
-password = $db_password
-
-[STRATUM]
-algo = etchash
-difficulty = 0.1
-diff_min = 0.05
-diff_max = 8192
-max_ttf = 50000
-
-[WALLETS]
-EOF_ETCHASH
-        sudo install -o "$runtime_user" -g "$runtime_group" -m 0640 \
-            "$tmp" "$etchash_target"
-        rm -f "$tmp"
-        print_success "Etchash algorithm template available"
-    fi
-}
-
 
 # SQSYIIMP_QUANTUS_TEMPLATE_V1
 ensure_quantus_template() {
@@ -3143,7 +3044,6 @@ main() {
 
     ensure_layout
     ensure_sha256d_template
-    ensure_ethash_templates
     ensure_quantus_template
 
     case "$mode" in

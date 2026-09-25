@@ -38,16 +38,20 @@ removecoin GAEL
 SQSYIIMP keeps coin-neutral algorithm templates under `config/templates/`.
 Dedicated per-coin configurations remain directly under `config/`. During upgrades,
 legacy one-part templates such as `sha256d.conf`, `kawpow.conf`, `ethash.conf` and
-`etchash.conf` are migrated into the template directory without moving files such
-as `btc.sha256d.conf` or `vbc.ethash.conf`. SQSYIIMP also installs coin-neutral
-`ethash.conf` and `etchash.conf` templates plus a dedicated `vbc.ethash.conf` when
-they are not already present. Both inherit the configured
-pool/SQL credentials from `.yiimp.conf`. The VBC config uses TCP port `6453`,
-initial difficulty `0.1`, `diff_min = 0.05`, `diff_max = 8192`,
-`max_ttf = 50000`, and `include = VBC`; the base template remains coin-neutral so
-future Ethash/Etchash coins can be created safely with `addport`. `addport`
-can also bootstrap the two base templates from the existing SQSYIIMP credentials
-when they are missing. Existing administrator configurations are never overwritten.
+`etchash.conf` are migrated into the template directory without moving dedicated
+files such as `btc.sha256d.conf` or `vbc.ethash.conf`.
+
+SQSYIIMP ships independent coin-neutral `ethash.conf` and `etchash.conf` templates.
+The installer renders the configured pool/SQL credentials into missing runtime
+templates without overwriting administrator-managed templates.
+
+CoinBuilder/DaemonBuilder remains responsible for installing and configuring coin
+nodes. When a coin is handed to `addport`, the Stratum manager uses the selected
+algorithm template to create that coin's dedicated configuration and associate it
+with a Stratum implementation maintained in an independent source repository.
+SQSYIIMP does not bundle or maintain Stratum source code or project-specific
+source patches. During installation or upgrade, SQSYIIMP may clone the configured
+external Stratum repository and compile its source to produce the runtime binary.
 
 Each dedicated coin config stores the selected runtime executable:
 
@@ -125,28 +129,16 @@ their systemd service, local JSON-RPC endpoint and P2P port so `removecoin
 <!-- SQSYIIMP_ETHASH_ETCHASH_STRATUM_DOCS_START -->
 ## Ethash / Etchash
 
-The shared Ethash-family runtime supports separate `ethash` and `etchash`
-algorithm selections.
+SQSYIIMP manages `ethash` and `etchash` through coin-neutral configuration
+templates and the external Stratum binary selected by the operator.
 
-Check the Etchash source/runtime integration:
+Stratum source code, compilation, patches and algorithm implementation are
+maintained independently by the corresponding Stratum project and are not
+bundled by SQSYIIMP.
 
-```bash
-sudo bash stratum_manager/patches/etchash-etc/install.sh --check
-```
-
-If the source reports `patched`, no reinstall is required.
-
-For a pristine supported source:
-
-```bash
-sudo bash stratum_manager/patches/etchash-etc/install.sh
-```
-
-Full node, database, addport, validation, and troubleshooting guide:
-
-```text
+Full node, database, addport, validation and troubleshooting guide:
 docs/ETHASH-ETCHASH-MANUAL.md
-```
+
 <!-- SQSYIIMP_ETHASH_ETCHASH_STRATUM_DOCS_END -->
 
 

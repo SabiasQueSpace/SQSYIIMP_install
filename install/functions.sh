@@ -291,7 +291,6 @@ function daemonbuiler_files {
                 upgrade.sh \
                 menu.sh \
                 menu2.sh \
-                menu3.sh \
                 ethash.sh
         do
                 if [[ ! -f "$daemonbuilder_target/$required_file" ]]; then

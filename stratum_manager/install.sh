@@ -21,7 +21,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MANAGER_SOURCE="$SCRIPT_DIR/addport.sh"
 REMOVE_SOURCE="$SCRIPT_DIR/removecoin.sh"
 RUNTIME_INSTALLER="$SCRIPT_DIR/install-runtime.sh"
-ETHASH_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/ethash.conf"
 SHA3X_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/sha3x.conf"
 
 [ -f "$MANAGER_SOURCE" ] || {
@@ -39,10 +38,6 @@ SHA3X_TEMPLATE_SOURCE="$SCRIPT_DIR/templates/sha3x.conf"
     exit 1
 }
 
-[ -f "$ETHASH_TEMPLATE_SOURCE" ] || {
-    echo "ERROR: Ethash Stratum template not found: $ETHASH_TEMPLATE_SOURCE" >&2
-    exit 1
-}
 
 [ -f "$SHA3X_TEMPLATE_SOURCE" ] || {
     echo "ERROR: SHA3X Stratum template not found: $SHA3X_TEMPLATE_SOURCE" >&2
@@ -236,7 +231,6 @@ PY_RENDER_SHA3X
 # Install algorithm templates shipped by SQSYIIMP without overwriting
 # administrator-managed runtime templates.
 #
-# Ethash/Etchash remain handled by install_ethash_templates().
 # COSA is deliberately excluded from SQSYIIMP.
 install_repository_algorithm_templates() {
     local source=""
@@ -278,10 +272,6 @@ install_repository_algorithm_templates() {
         case "$name" in
             cosa.conf)
                 echo "Skipping deliberately excluded algorithm template: $name"
-                continue
-                ;;
-            ethash.conf|etchash.conf)
-                # These require their dedicated installation path.
                 continue
                 ;;
         esac
@@ -370,144 +360,6 @@ PY_RENDER_TEMPLATE
     shopt -u nullglob
 }
 
-install_ethash_templates() {
-    local base_target="$TEMPLATE_DIR/ethash.conf"
-    local etchash_target="$TEMPLATE_DIR/etchash.conf"
-    local vbc_target="$CONFIG_DIR/vbc.ethash.conf"
-    local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
-    local db_host="localhost"
-    local rendered=""
-    local base_rendered=""
-    local etchash_rendered=""
-
-    if [[ -f "$base_target" && -f "$etchash_target" && -f "$vbc_target" ]]; then
-        echo "Ethash/Etchash Stratum templates already exist; preserving administrator configuration"
-        return 0
-    fi
-
-    if [[ -r "$yiimp_conf" ]]; then
-        # shellcheck disable=SC1090
-        source "$yiimp_conf"
-    fi
-
-    if [[ -z "${StratumURL:-}" ||
-          -z "${BlocknotifyPassword:-}" ||
-          -z "${YiiMPDBName:-}" ||
-          -z "${StratumDBUser:-}" ||
-          -z "${StratumUserDBPassword:-}" ]]; then
-        echo "WARNING: Ethash templates were not installed because SQSYIIMP credentials are incomplete in $yiimp_conf" >&2
-        return 0
-    fi
-
-    # DBInternalIP is persisted only for remote/WireGuard DB installs.
-    # Local YiiMP installs therefore keep the requested localhost host.
-    if [[ -n "${DBInternalIP:-}" ]]; then
-        db_host="$DBInternalIP"
-    fi
-
-    rendered="$(mktemp)"
-    base_rendered="$(mktemp)"
-    etchash_rendered="$(mktemp)"
-    cp "$ETHASH_TEMPLATE_SOURCE" "$rendered"
-
-    STRATUM_URL="$StratumURL" \
-    STRATUM_PASSWORD="$BlocknotifyPassword" \
-    SQL_HOST="$db_host" \
-    SQL_DATABASE="$YiiMPDBName" \
-    SQL_USERNAME="$StratumDBUser" \
-    SQL_PASSWORD="$StratumUserDBPassword" \
-    python3 - "$rendered" "$base_rendered" <<'PY_RENDER_ETHASH'
-import os
-import re
-import sys
-from pathlib import Path
-
-vbc_path = Path(sys.argv[1])
-base_path = Path(sys.argv[2])
-text = vbc_path.read_text()
-
-replacements = {
-    ("TCP", "server"): os.environ["STRATUM_URL"],
-    ("TCP", "password"): os.environ["STRATUM_PASSWORD"],
-    ("SQL", "host"): os.environ["SQL_HOST"],
-    ("SQL", "database"): os.environ["SQL_DATABASE"],
-    ("SQL", "username"): os.environ["SQL_USERNAME"],
-    ("SQL", "password"): os.environ["SQL_PASSWORD"],
-}
-
-section = None
-vbc_lines = []
-base_lines = []
-for line in text.splitlines():
-    match = re.match(r"^\s*\[([^]]+)\]\s*$", line)
-    if match:
-        section = match.group(1).upper()
-        vbc_lines.append(line)
-        base_lines.append(line)
-        continue
-
-    rendered = line
-    for (wanted_section, key), value in replacements.items():
-        if section == wanted_section and re.match(rf"^\s*{re.escape(key)}\s*=", line, re.I):
-            rendered = f"{key} = {value}"
-            break
-
-    vbc_lines.append(rendered)
-
-    # The base algorithm template must remain coin-neutral. addport will add
-    # the requested wallet include to each dedicated <coin>.ethash.conf.
-    if section == "WALLETS" and re.match(r"^\s*include\s*=", rendered, re.I):
-        continue
-    base_lines.append(rendered)
-
-vbc_path.write_text("\n".join(vbc_lines) + "\n")
-base_path.write_text("\n".join(base_lines) + "\n")
-PY_RENDER_ETHASH
-
-    if [[ ! -f "$base_target" ]]; then
-        sudo install \
-            -o "$STORAGE_USER" \
-            -g "$STORAGE_GROUP" \
-            -m 0640 \
-            "$base_rendered" \
-            "$base_target"
-        echo "Ethash base algorithm template installed: $base_target"
-    else
-        echo "Ethash base template already exists; preserving: $base_target"
-    fi
-
-
-    sed -E \
-        's/^[[:space:]]*algo[[:space:]]*=.*/algo = etchash/' \
-        "$base_rendered" > "$etchash_rendered"
-
-    if [[ ! -f "$etchash_target" ]]; then
-        sudo install \
-            -o "$STORAGE_USER" \
-            -g "$STORAGE_GROUP" \
-            -m 0640 \
-            "$etchash_rendered" \
-            "$etchash_target"
-        echo "Etchash base algorithm template installed: $etchash_target"
-    else
-        echo "Etchash base template already exists; preserving: $etchash_target"
-    fi
-
-    if [[ ! -f "$vbc_target" ]]; then
-        sudo install \
-            -o "$STORAGE_USER" \
-            -g "$STORAGE_GROUP" \
-            -m 0640 \
-            "$rendered" \
-            "$vbc_target"
-        echo "VBC Ethash Stratum configuration installed: $vbc_target"
-    else
-        echo "VBC Ethash config already exists; preserving: $vbc_target"
-    fi
-
-    rm -f "$rendered" "$base_rendered" "$etchash_rendered"
-}
-
 sudo install -d \
     -o "$STORAGE_USER" \
     -g "$STORAGE_GROUP" \
@@ -518,7 +370,6 @@ sudo install -d \
 migrate_legacy_algorithm_templates
 install_sha3x_template
 install_repository_algorithm_templates
-install_ethash_templates
 bash "$RUNTIME_INSTALLER" "$STRATUM_DIR"
 
 sudo cp "$MANAGER_SOURCE" /usr/bin/addport

@@ -160,9 +160,31 @@ for file in "${SQL_FILES[@]}"; do
     fi
 done
 
+# ------------------------------------------------------------
+# SQSYIIMP Quantus QPoW / Poseidon2 database integration
+# ------------------------------------------------------------
+
+QUANTUS_SQL="$HOME/sqsyiimp/yiimp_single/yiimp_confs/2026-09-24-add-quantus.sql"
+
+if [[ -f "$QUANTUS_SQL" ]]; then
+    print_status "Applying Quantus QPoW database integration..."
+    print_info "Processing Quantus migration '$QUANTUS_SQL'"
+
+    sudo mariadb \
+        -u root \
+        -p"${DBRootPassword}" \
+        "${YiiMPDBName}" \
+        < "$QUANTUS_SQL"
+
+    print_success "Quantus QPoW database integration applied"
+else
+    print_warning "Quantus SQL migration not found: $QUANTUS_SQL"
+fi
+
 #cd "$HOME/sqsyiimp/yiimp_single"/yiimp_confs
 #print_status "Enabling algorithms..."
 # sudo mariadb -u root -p"${DBRootPassword}" "${YiiMPDBName}" --force < "2025-01-29-enable-all-algos.sql"
+
 print_success "Database import completed successfully"
 
 print_header "MariaDB Optimization"

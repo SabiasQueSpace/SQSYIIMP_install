@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# === MEGAHASHPOOL FREE STRATUM PORT ===
+# === SQSYIIMP SAFE STRATUM PORT CHECK ===
 #
 # Safety rule:
 #   - NEVER kill an unknown process just because it owns a TCP port.
@@ -66,7 +66,7 @@ free_stratum_port() {
     echo "Refusing to continue while port $port is occupied."
     return 1
 }
-# === END MEGAHASHPOOL FREE STRATUM PORT ===
+# === END SQSYIIMP SAFE STRATUM PORT CHECK ===
 
 
 ############################################################
@@ -1423,6 +1423,130 @@ EOF_ETCHASH
 }
 
 
+# SQSYIIMP_QUANTUS_TEMPLATE_V1
+ensure_quantus_template() {
+    local source="$TEMPLATE_DIR/ethash.conf"
+    local target="$TEMPLATE_DIR/quantus.conf"
+    local runtime_user="${STORAGE_USER:-crypto-data}"
+    local runtime_group="${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}"
+    local tmp=""
+
+    if [[ -f "$target" ]]; then
+        if grep -Eiq \
+            '^[[:space:]]*algo[[:space:]]*=[[:space:]]*quantus[[:space:]]*$' \
+            "$target"
+        then
+            return 0
+        fi
+
+        print_warning \
+            "Existing Quantus template has an unexpected algorithm: $target"
+
+        return 0
+    fi
+
+    if [[ ! -f "$source" ]]; then
+        print_warning \
+            "Quantus template was not created because Ethash base template is unavailable: $source"
+
+        return 0
+    fi
+
+    tmp="$(mktemp)"
+
+    cp "$source" "$tmp"
+
+    python3 - "$tmp" <<'PY_QUANTUS_TEMPLATE'
+from configparser import ConfigParser
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+
+cfg = ConfigParser(
+    interpolation=None,
+    strict=False
+)
+
+cfg.optionxform = str
+
+with path.open() as fh:
+    cfg.read_file(fh)
+
+if not cfg.has_section("STRATUM"):
+    cfg.add_section("STRATUM")
+
+values = {
+    "algo": "quantus",
+    "difficulty": "1000000000",
+    "diff_min": "250000000",
+    "diff_max": "50000000000000",
+    "nicehash": "1000000000",
+    "nicehash_diff_min": "1000000000",
+    "nicehash_diff_max": "50000000000000",
+    "mrr": "1000000000",
+    "mrr_diff_min": "1000000000",
+    "mrr_diff_max": "50000000000000",
+    "max_ttf": "50000",
+    "autoexchange": "0",
+    "renting": "0",
+    "reconnect": "0",
+    "max_cons": "10",
+}
+
+section = cfg["STRATUM"]
+
+for key, value in values.items():
+    found = None
+
+    for current in list(section.keys()):
+        if current.lower() == key.lower():
+            found = current
+            break
+
+    if found is not None and found != key:
+        del section[found]
+
+    section[key] = value
+
+if not cfg.has_section("WALLETS"):
+    cfg.add_section("WALLETS")
+
+wallets = cfg["WALLETS"]
+
+for key in list(wallets.keys()):
+    if key.lower() == "include":
+        del wallets[key]
+
+with path.open("w") as fh:
+    cfg.write(
+        fh,
+        space_around_delimiters=True
+    )
+PY_QUANTUS_TEMPLATE
+
+    if ! grep -Eiq \
+        '^[[:space:]]*algo[[:space:]]*=[[:space:]]*quantus[[:space:]]*$' \
+        "$tmp"
+    then
+        rm -f "$tmp"
+        fatal "Quantus template validation failed"
+    fi
+
+    sudo install \
+        -o "$runtime_user" \
+        -g "$runtime_group" \
+        -m 0640 \
+        "$tmp" \
+        "$target"
+
+    rm -f "$tmp"
+
+    print_success \
+        "Quantus QPoW algorithm template available"
+}
+
+
 list_algorithms() {
     find "$TEMPLATE_DIR" \
         -mindepth 1 -maxdepth 1 -type f \
@@ -2759,9 +2883,40 @@ start_service() {
         return 0
     fi
 
-    stratum_as_runtime \
-        screen -dmS "\$SESSION" \
-        "\$RUNNER" "\$CONFIG"
+    # SQSYIIMP_QUANTUS_SERVICE_ENV_V1
+    if grep -Eiq \
+        '^[[:space:]]*algo[[:space:]]*=[[:space:]]*quantus[[:space:]]*$' \
+        "\$STRATUM_DIR/config/\$CONFIG"
+    then
+        QUANTUS_SECRET_DIR="\$STRATUM_DIR/secrets/\$SESSION"
+
+        if [[ ! -r "\$QUANTUS_SECRET_DIR/miner-auth-token" ]]; then
+            echo \
+                "ERROR: Quantus auth token is missing: \$QUANTUS_SECRET_DIR/miner-auth-token" \
+                >&2
+            return 1
+        fi
+
+        if [[ ! -r "\$QUANTUS_SECRET_DIR/miner-tls-cert-sha256" ]]; then
+            echo \
+                "ERROR: Quantus TLS pin is missing: \$QUANTUS_SECRET_DIR/miner-tls-cert-sha256" \
+                >&2
+            return 1
+        fi
+
+        stratum_as_runtime \
+            env \
+            -u QUANTUS_SHARE_DIFFICULTY \
+            QUANTUS_NODE_ADDR="\${QUANTUS_NODE_ADDR:-127.0.0.1:9833}" \
+            QUANTUS_AUTH_TOKEN_FILE="\$QUANTUS_SECRET_DIR/miner-auth-token" \
+            QUANTUS_TLS_PIN_FILE="\$QUANTUS_SECRET_DIR/miner-tls-cert-sha256" \
+            screen -dmS "\$SESSION" \
+            "\$RUNNER" "\$CONFIG"
+    else
+        stratum_as_runtime \
+            screen -dmS "\$SESSION" \
+            "\$RUNNER" "\$CONFIG"
+    fi
 }
 
 
@@ -2989,6 +3144,7 @@ main() {
     ensure_layout
     ensure_sha256d_template
     ensure_ethash_templates
+    ensure_quantus_template
 
     case "$mode" in
 

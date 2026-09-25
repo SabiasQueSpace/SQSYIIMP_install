@@ -209,7 +209,7 @@ fi
   echo "created=$TS"
   echo "source=$SOURCE_ROOT"
   echo "runtime=$RUNTIME_BINARY"
-  echo "package=MegaHashPool-Stratum-Etchash-ETC-v1.0.1"
+  echo "package=SQSYIIMP-Stratum-Etchash-ETC-v1.0.1"
 } > "$BACKUP/metadata.txt"
 
 restore_on_failure() {

@@ -1,4 +1,4 @@
-# MegaHashPool Stratum Etchash / ETC v1.0
+# SQSYIIMP Stratum Etchash / ETC v1.0
 
 Adds **Etchash (Ethereum Classic / ECIP-1099)** as a separate algorithm to the existing `stratum-kawpow-sqs` source while keeping the current **Ethash/VBC** path intact.
 
@@ -30,7 +30,7 @@ No `ethash -> etchash` rename is performed. Existing Ethash coins remain Ethash.
 ETC Stratum must be stopped first.
 
 ```bash
-cd /path/to/MegaHashPool-Stratum-Etchash-ETC-v1.0
+cd /path/to/SQSYIIMP-Stratum-Etchash-ETC-v1.0
 sudo bash install.sh --check
 sudo bash install.sh
 ```
@@ -93,7 +93,7 @@ sudo bash install.sh --rollback /home/crypto-data/yiimp/backups/stratum-etchash-
 - VBC and ETC bridge outputs matched exactly for the pre-fork vector;
 - ECIP-1099 epoch/seed mapping was checked against the official specification and the reference `cpp-etchash` implementation.
 
-A full Stratum link was not claimed from the preparation sandbox because its build environment does not match the pool server (notably missing server dependencies such as libsodium headers). The installer performs the authoritative full build on the MegaHashPool server and automatically restores the original source/runtime if that build fails.
+A full Stratum link was not claimed from the preparation sandbox because its build environment does not match the pool server (notably missing server dependencies such as libsodium headers). The installer performs the authoritative full build on the target YiiMP server and automatically restores the original source/runtime if that build fails.
 
 ## v1.0.1 installer fix
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 ############################################################
-# SQSYIIMP / MegaHashPool
+# SQSYIIMP
 # Ethash / Etchash EVM node installer for DaemonBuilder
 #
 # Installs a Geth/Core-Geth compatible node for pool mining,
@@ -99,7 +99,7 @@ input_value() {
     local value=""
 
     if command -v dialog >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
-        value="$(dialog --stdout --backtitle 'MegaHashPool - SQSYIIMP' \
+        value="$(dialog --stdout --backtitle 'SQSYIIMP' \
             --title "$title" --inputbox "$text" 18 82 "$default_value")" || exit 0
     else
         read -r -e -p "$text [$default_value]: " value
@@ -116,7 +116,7 @@ input_secret() {
     local value=""
 
     if command -v dialog >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
-        value="$(dialog --stdout --backtitle 'MegaHashPool - SQSYIIMP' \
+        value="$(dialog --stdout --backtitle 'SQSYIIMP' \
             --title "$title" --insecure --passwordbox "$text" 16 82)" || exit 0
     else
         read -r -s -p "$text: " value
@@ -134,7 +134,7 @@ choose_menu() {
     local value=""
 
     if command -v dialog >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
-        value="$(dialog --stdout --backtitle 'MegaHashPool - SQSYIIMP' \
+        value="$(dialog --stdout --backtitle 'SQSYIIMP' \
             --title "$title" --menu "$text" 18 78 8 "$@")" || exit 0
     else
         local -a values=()
@@ -163,7 +163,7 @@ confirm_yesno() {
     local text="$2"
 
     if command -v dialog >/dev/null 2>&1 && [[ -t 0 && -t 1 ]]; then
-        dialog --backtitle 'MegaHashPool - SQSYIIMP' --title "$title" --yesno "$text" 16 78
+        dialog --backtitle 'SQSYIIMP' --title "$title" --yesno "$text" 16 78
         return $?
     fi
 

@@ -24,6 +24,53 @@ if [ "${1:-}" == "--stratum-only" ]; then
     UPGRADE_TYPE="stratum"
 fi
 
+
+apply_quantus_database_migration() {
+    local storage_root="${STORAGE_ROOT:-/home/crypto-data}"
+    local yiimp_conf="$storage_root/yiimp/.yiimp.conf"
+    local migration="$HOME/sqsyiimp/yiimp_single/yiimp_confs/2026-09-24-add-quantus.sql"
+
+    if [[ ! -r "$yiimp_conf" ]]; then
+        log_message "$RED" "YiiMP database configuration not found: $yiimp_conf"
+        return 1
+    fi
+
+    # Database credentials are stored in the live YiiMP configuration.
+    # shellcheck disable=SC1090
+    source "$yiimp_conf"
+
+    if [[ -z "${YiiMPDBName:-}" ]]; then
+        log_message "$RED" "YiiMPDBName is not defined in $yiimp_conf"
+        return 1
+    fi
+
+    if [[ -z "${DBRootPassword:-}" ]]; then
+        log_message "$RED" "DBRootPassword is not defined in $yiimp_conf"
+        return 1
+    fi
+
+    if [[ ! -f "$migration" ]]; then
+        log_message "$RED" "Quantus database migration not found: $migration"
+        return 1
+    fi
+
+    log_message "$YELLOW" "Applying Quantus QPoW database migration..."
+
+    if ! sudo mariadb \
+        -u root \
+        -p"${DBRootPassword}" \
+        "${YiiMPDBName}" \
+        < "$migration"
+    then
+        log_message "$RED" "Quantus database migration failed."
+        return 1
+    fi
+
+    log_message "$GREEN" "Quantus QPoW database migration applied successfully."
+    return 0
+}
+
+
 main() {
     log_message "$YELLOW" "Starting SQSYIIMP upgrade..."
     log_message "$YELLOW" "Current version : $VERSION"
@@ -135,6 +182,14 @@ main() {
                 log_message "$RED" "Runtime synchronization failed."
                 log_message "$YELLOW" "Restoring repository to $OLD_HEAD..."
                 git reset --hard "$OLD_HEAD" >/dev/null 2>&1 || true
+                exit 1
+            fi
+
+            # Apply idempotent database changes after the new repository
+            # version is present but before marking the upgrade complete.
+            if ! apply_quantus_database_migration; then
+                log_message "$RED" "Database migration failed."
+                log_message "$YELLOW" "The migration is idempotent and can be safely retried."
                 exit 1
             fi
 

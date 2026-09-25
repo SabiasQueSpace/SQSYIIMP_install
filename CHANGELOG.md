@@ -5,6 +5,19 @@ All notable changes to SQSYIIMP are documented in this file.
 ## Unreleased
 
 ### Added
+
+- Quantus QPoW managed Stratum integration with native `quantus` configuration, per-coin runtime selection, managed `screen` service environment and automatic QTC service generation.
+- Quantus VarDiff defaults for QTC with native integer difficulty, including a 1,000,000,000 initial difficulty, 250,000,000 minimum and 50,000,000,000,000 maximum.
+- Quantus bridge environment support for managed Stratum services using `QUANTUS_NODE_ADDR`, authentication token and TLS certificate pin files while leaving `QUANTUS_SHARE_DIFFICULTY` unset for VarDiff.
+
+### Fixed
+
+- Remove project-specific branding and disk-cache coupling from the generic SQSYIIMP installer; custom pool cache and panel integrations remain external to SQSYIIMP.
+
+- Mark QTC as supporting `getinfo` compatibility in the Quantus YiiMP database migration.
+
+
+### Added
 - Add optional Stratum binary capability discovery using the public `--help`, `--version` and `--algos` interface; when valid, algorithm availability is restricted for that specific binary, while binaries without introspection remain unrestricted and no Stratum source code is inspected.
 - Add a coin-neutral `sha3x.conf` algorithm template owned by SQSYIIMP; it is installed into `config/templates/` without inspecting or depending on Stratum source capabilities.
 

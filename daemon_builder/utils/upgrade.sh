@@ -8,7 +8,7 @@
 #   ravend
 #   raven-cli
 #
-# but MegaHashPool/YiiMP uses the full canonical coin name:
+# SQSYIIMP/YiiMP uses the full canonical coin name:
 #
 #   ravencoind
 #   ravencoin-cli
@@ -16,7 +16,7 @@
 # The original names are retained as compatibility symlinks.
 #
 
-mhp_normalize_coin_name()
+sqsyiimp_normalize_coin_name()
 {
     local raw="${1:-}"
 
@@ -26,12 +26,12 @@ mhp_normalize_coin_name()
 }
 
 
-mhp_canonical_binary_name()
+sqsyiimp_canonical_binary_name()
 {
     local role="$1"
     local base
 
-    base="$(mhp_normalize_coin_name "${coin:-}")"
+    base="$(sqsyiimp_normalize_coin_name "${coin:-}")"
 
     if [[ -z "$base" ]]; then
         echo "ERROR: Unable to determine canonical coin name" >&2
@@ -75,7 +75,7 @@ mhp_canonical_binary_name()
 }
 
 
-mhp_install_coin_binary()
+sqsyiimp_install_coin_binary()
 {
     local source_file="$1"
     local original_name="$2"
@@ -96,7 +96,7 @@ mhp_install_coin_binary()
         return 1
     fi
 
-    canonical_name="$(mhp_canonical_binary_name "$role")" || return 1
+    canonical_name="$(sqsyiimp_canonical_binary_name "$role")" || return 1
 
     canonical_path="/usr/bin/${canonical_name}"
     original_path="/usr/bin/${original_name}"
@@ -137,7 +137,7 @@ mhp_install_coin_binary()
     #
     # Caller uses this to update coind/coincli/etc.
     #
-    MHP_INSTALLED_BINARY="$canonical_name"
+    SQSYIIMP_INSTALLED_BINARY="$canonical_name"
 
     echo "SUCCESS: Installed /usr/bin/$canonical_name"
 
@@ -148,7 +148,7 @@ mhp_install_coin_binary()
 
 # === MHP SAFE DAEMON SHUTDOWN ================================================
 
-mhp_resolve_daemon_path()
+sqsyiimp_resolve_daemon_path()
 {
     local daemon_name="${1:-}"
     local path="/usr/bin/${daemon_name}"
@@ -160,7 +160,7 @@ mhp_resolve_daemon_path()
     fi
 }
 
-mhp_pid_is_daemon()
+sqsyiimp_pid_is_daemon()
 {
     local pid="${1:-}"
     local daemon_name="${2:-}"
@@ -170,7 +170,7 @@ mhp_pid_is_daemon()
     [[ "$pid" =~ ^[0-9]+$ ]] || return 1
     [[ -e "/proc/${pid}" ]] || return 1
 
-    expected_path="$(mhp_resolve_daemon_path "$daemon_name")"
+    expected_path="$(sqsyiimp_resolve_daemon_path "$daemon_name")"
 
     exe="$(sudo readlink -f "/proc/${pid}/exe" 2>/dev/null || true)"
     exe="${exe% (deleted)}"
@@ -178,7 +178,7 @@ mhp_pid_is_daemon()
     [[ -n "$exe" && "$exe" == "$expected_path" ]]
 }
 
-mhp_find_daemon_pids()
+sqsyiimp_find_daemon_pids()
 {
     local daemon_name="${1:-}"
     local expected_path=""
@@ -186,7 +186,7 @@ mhp_find_daemon_pids()
     local pid=""
     local exe=""
 
-    expected_path="$(mhp_resolve_daemon_path "$daemon_name")"
+    expected_path="$(sqsyiimp_resolve_daemon_path "$daemon_name")"
 
     for proc in /proc/[0-9]*; do
         [[ -e "$proc" ]] || continue
@@ -202,7 +202,7 @@ mhp_find_daemon_pids()
     done
 }
 
-mhp_check_datadir_locks()
+sqsyiimp_check_datadir_locks()
 {
     local datadir="${1:-}"
     local lock=""
@@ -234,7 +234,7 @@ mhp_check_datadir_locks()
     [[ "$found" -eq 0 ]]
 }
 
-mhp_wait_for_daemon_shutdown()
+sqsyiimp_wait_for_daemon_shutdown()
 {
     local daemon_pids="${1:-}"
     local daemon_name="${2:-}"
@@ -254,7 +254,7 @@ mhp_wait_for_daemon_shutdown()
         alive=0
 
         for pid in $daemon_pids; do
-            if mhp_pid_is_daemon "$pid" "$daemon_name"; then
+            if sqsyiimp_pid_is_daemon "$pid" "$daemon_name"; then
                 alive=1
                 break
             fi
@@ -280,7 +280,7 @@ mhp_wait_for_daemon_shutdown()
     fi
 
     # Make sure the daemon was not automatically restarted with another PID.
-    current_pids="$(mhp_find_daemon_pids "$daemon_name" | tr '\n' ' ')"
+    current_pids="$(sqsyiimp_find_daemon_pids "$daemon_name" | tr '\n' ' ')"
 
     if [[ -n "${current_pids// }" ]]; then
         print_error \
@@ -290,7 +290,7 @@ mhp_wait_for_daemon_shutdown()
         return 1
     fi
 
-    if ! mhp_check_datadir_locks "$datadir"; then
+    if ! sqsyiimp_check_datadir_locks "$datadir"; then
         print_error "Database lock still active in ${datadir}"
         print_error "Binary replacement aborted"
         return 1
@@ -1185,7 +1185,7 @@ printf '\n'
         else
             DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
         fi
-        DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+        DAEMON_PIDS="$(sqsyiimp_find_daemon_pids "$coind" | tr '\n' ' ')"
         if [[ -n "${DAEMON_PIDS// }" ]]; then
             if [[ ("${YIIMPCONF}" == "true") ]]; then
                 if [[ ("$ifcoincli" == "y" || "$ifcoincli" == "Y") ]]; then
@@ -1201,7 +1201,7 @@ printf '\n'
                 fi
             fi
             print_status "Stopping daemon ${coind}..."
-            if ! mhp_wait_for_daemon_shutdown \
+            if ! sqsyiimp_wait_for_daemon_shutdown \
                 "$DAEMON_PIDS" \
                 "$coind" \
                 "$DAEMON_DATADIR" \
@@ -1245,7 +1245,7 @@ if [[ ("$precompiled" == "true") ]]; then
             else
                 DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
             fi
-            DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+            DAEMON_PIDS="$(sqsyiimp_find_daemon_pids "$coind" | tr '\n' ' ')"
             if [[ -n "${DAEMON_PIDS// }" ]]; then
                 if [[ ("${YIIMPCONF}" == "true") ]]; then
                     if [[ -f "$COINCLIFIND" ]]; then
@@ -1261,7 +1261,7 @@ if [[ ("$precompiled" == "true") ]]; then
                     fi
                 fi
                 print_status "Stopping daemon ${coind}..."
-                if ! mhp_wait_for_daemon_shutdown \
+                if ! sqsyiimp_wait_for_daemon_shutdown \
                     "$DAEMON_PIDS" \
                     "$coind" \
                     "$DAEMON_DATADIR" \
@@ -1437,7 +1437,7 @@ else
         else
             DAEMON_DATADIR="${absolutepath}/wallets/.${coin,,}"
         fi
-        DAEMON_PIDS="$(mhp_find_daemon_pids "$coind" | tr '\n' ' ')"
+        DAEMON_PIDS="$(sqsyiimp_find_daemon_pids "$coind" | tr '\n' ' ')"
         if [[ -n "${DAEMON_PIDS// }" ]]; then
             if [[ ("${YIIMPCONF}" == "true") ]]; then
                 if [[ -n "$COINCLIFIND" ]]; then
@@ -1453,7 +1453,7 @@ else
                 fi
             fi
             print_status "Stopping daemon ${coind}..."
-            if ! mhp_wait_for_daemon_shutdown \
+            if ! sqsyiimp_wait_for_daemon_shutdown \
                 "$DAEMON_PIDS" \
                 "$coind" \
                 "$DAEMON_DATADIR" \
@@ -1471,8 +1471,8 @@ else
 
     if [[ -n "$COINDFIND" ]]; then
         print_status "Installing daemon to /usr/bin/${coind}..."
-        mhp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coind}" "${coind}" "daemon" || { return 1 2>/dev/null || exit 1; }
-        coind="$MHP_INSTALLED_BINARY"
+        sqsyiimp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coind}" "${coind}" "daemon" || { return 1 2>/dev/null || exit 1; }
+        coind="$SQSYIIMP_INSTALLED_BINARY"
         sudo strip /usr/bin/${coind}
         coindmv=true
         print_success "Daemon installed"
@@ -1480,8 +1480,8 @@ else
 
     if [[ -n "$COINCLIFIND" ]]; then
         print_status "Installing CLI to /usr/bin/${coincli}..."
-        mhp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coincli}" "${coincli}" "cli" || { return 1 2>/dev/null || exit 1; }
-        coincli="$MHP_INSTALLED_BINARY"
+        sqsyiimp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coincli}" "${coincli}" "cli" || { return 1 2>/dev/null || exit 1; }
+        coincli="$SQSYIIMP_INSTALLED_BINARY"
         sudo strip /usr/bin/${coincli}
         coinclimv=true
         print_success "CLI installed"
@@ -1489,8 +1489,8 @@ else
 
     if [[ -n "$COINTXFIND" ]]; then
         print_status "Installing TX to /usr/bin/${cointx}..."
-        mhp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${cointx}" "${cointx}" "tx" || { return 1 2>/dev/null || exit 1; }
-        cointx="$MHP_INSTALLED_BINARY"
+        sqsyiimp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${cointx}" "${cointx}" "tx" || { return 1 2>/dev/null || exit 1; }
+        cointx="$SQSYIIMP_INSTALLED_BINARY"
         sudo strip /usr/bin/${cointx}
         cointxmv=true
         print_success "TX installed"
@@ -1498,8 +1498,8 @@ else
 
     if [[ -n "$COINUTILFIND" ]]; then
         print_status "Installing UTIL to /usr/bin/${coinutil}..."
-        mhp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinutil}" "${coinutil}" "util" || { return 1 2>/dev/null || exit 1; }
-        coinutil="$MHP_INSTALLED_BINARY"
+        sqsyiimp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinutil}" "${coinutil}" "util" || { return 1 2>/dev/null || exit 1; }
+        coinutil="$SQSYIIMP_INSTALLED_BINARY"
         sudo strip /usr/bin/${coinutil}
         coinutilmv=true
         print_success "UTIL installed"
@@ -1507,8 +1507,8 @@ else
 
     if [[ -n "$COINHASHFIND" ]]; then
         print_status "Installing HASH to /usr/bin/${coinhash}..."
-        mhp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinhash}" "${coinhash}" "hash" || { return 1 2>/dev/null || exit 1; }
-        coinhash="$MHP_INSTALLED_BINARY"
+        sqsyiimp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinhash}" "${coinhash}" "hash" || { return 1 2>/dev/null || exit 1; }
+        coinhash="$SQSYIIMP_INSTALLED_BINARY"
         sudo strip /usr/bin/${coinhash}
         coinhashmv=true
         print_success "HASH installed"
@@ -1516,8 +1516,8 @@ else
 
     if [[ -n "$COINWALLETFIND" ]]; then
         print_status "Installing WALLET to /usr/bin/${coinwallet}..."
-        mhp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinwallet}" "${coinwallet}" "wallet" || { return 1 2>/dev/null || exit 1; }
-        coinwallet="$MHP_INSTALLED_BINARY"
+        sqsyiimp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinwallet}" "${coinwallet}" "wallet" || { return 1 2>/dev/null || exit 1; }
+        coinwallet="$SQSYIIMP_INSTALLED_BINARY"
         sudo strip /usr/bin/${coinwallet}
         coinwalletmv=true
         print_success "WALLET installed"
@@ -1525,8 +1525,8 @@ else
 
     if [[ -n "$COINQTFIND" ]]; then
         print_status "Installing QT to /usr/bin/${coinqt}..."
-        mhp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinqt}" "${coinqt}" "qt" || { return 1 2>/dev/null || exit 1; }
-        coinqt="$MHP_INSTALLED_BINARY"
+        sqsyiimp_install_coin_binary "$STORAGE_ROOT/daemon_builder/temp_coin_builds/${coindir}/src/${coinqt}" "${coinqt}" "qt" || { return 1 2>/dev/null || exit 1; }
+        coinqt="$SQSYIIMP_INSTALLED_BINARY"
         sudo strip /usr/bin/${coinqt}
         coinqtmv=true
         print_success "QT installed"

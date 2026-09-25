@@ -400,7 +400,7 @@ install_ethash_templates() {
     fi
 
     # DBInternalIP is persisted only for remote/WireGuard DB installs.
-    # Local MegaHashPool installs therefore keep the requested localhost host.
+    # Local YiiMP installs therefore keep the requested localhost host.
     if [[ -n "${DBInternalIP:-}" ]]; then
         db_host="$DBInternalIP"
     fi

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 #
-# MegaHashPool / SQSYIIMP
+# SQSYIIMP
 # DaemonBuilder main menu
 #
 # Author: SabiasQue.Space
@@ -126,7 +126,7 @@ fi
 RESULT=$(
     dialog \
         --stdout \
-        --backtitle "MegaHashPool - SQSYIIMP" \
+        --backtitle "SQSYIIMP" \
         --title "DaemonBuilder ${SQSYIIMP_VERSION:-v1.0.0}" \
         --menu "$MENU_INFO" \
         24 76 10 \
@@ -195,7 +195,7 @@ ${SQSYIIMP_VERSION}  ->  ${LATESTVER}
 Do you want to start the SQSYIIMP updater now?"
 
             if dialog \
-                --backtitle "MegaHashPool - SQSYIIMP" \
+                --backtitle "SQSYIIMP" \
                 --title "SQSYIIMP Update Available" \
                 --yesno "$UPDATE_TEXT" \
                 23 76
@@ -204,7 +204,7 @@ Do you want to start the SQSYIIMP updater now?"
 
                 if ! sqsyiimp_run_updater; then
                     dialog \
-                        --backtitle "MegaHashPool - SQSYIIMP" \
+                        --backtitle "SQSYIIMP" \
                         --title "SQSYIIMP Update" \
                         --msgbox "The SQSYIIMP updater did not complete successfully." \
                         9 64
@@ -216,7 +216,7 @@ Do you want to start the SQSYIIMP updater now?"
 SQSYIIMP is up to date."
 
             dialog \
-                --backtitle "MegaHashPool - SQSYIIMP" \
+                --backtitle "SQSYIIMP" \
                 --title "Version / Update Information" \
                 --msgbox "$UPDATE_TEXT" \
                 19 76

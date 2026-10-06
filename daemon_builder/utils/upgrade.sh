@@ -376,7 +376,7 @@ if [[ ("${precompiled}" == "true") ]]; then
     input_box "Precompiled Binary Information" \
     "Please enter the URL link to the precompiled compressed file.
     \n\nExample: bitcoin-0.16.3-x86_64-linux-gnu.tar.gz
-    \n\nSupported formats: .tar.gz, .zip, .7z
+    \n\nSupported formats: .tar.gz, .tgz, .zip, .7z, .rar
     \n\n*To paste, use Ctrl+Shift+V (or right-click in some terminals).
     \n\nPrecompiled Binary URL:" \
     "" \
@@ -1012,10 +1012,11 @@ fi
 
 if [[ "$precompiled" == "true" ]]; then
 
-    COINTARGZ=$(find . -type f -name "*.tar.gz")
-    COINTGZ=$(find . -type f -name "*.tgz")
-    COINZIP=$(find . -type f -name "*.zip")
-    COIN7Z=$(find . -type f -name "*.7z")
+    COINTARGZ=$(find . -type f -name "*.tar.gz" | head -n 1)
+    COINTGZ=$(find . -type f -name "*.tgz" | head -n 1)
+    COINZIP=$(find . -type f -name "*.zip" | head -n 1)
+    COIN7Z=$(find . -type f -name "*.7z" | head -n 1)
+    COINRAR=$(find . -type f -iname "*.rar" | head -n 1)
 
     if [[ -f "$COINZIP" ]]; then
         hide_output sudo unzip -q "$COINZIP"
@@ -1025,8 +1026,17 @@ if [[ "$precompiled" == "true" ]]; then
         hide_output sudo tar xzvf "$COINTGZ"
     elif [[ -f "$COIN7Z" ]]; then
         hide_output sudo 7z x "$COIN7Z"
+    elif [[ -f "$COINRAR" ]]; then
+        if command -v unar >/dev/null 2>&1; then
+            hide_output sudo unar -f -o . "$COINRAR"
+        elif command -v 7z >/dev/null 2>&1; then
+            hide_output sudo 7z x "$COINRAR"
+        else
+            print_error "RAR archive found but no extractor is installed (unar/7z)."
+            exit 1
+        fi
     else
-        print_error "No valid compressed files found (.zip, .tar.gz, .tgz, or .7z)."
+        print_error "No valid compressed files found (.zip, .tar.gz, .tgz, .7z, or .rar)."
         exit 1
     fi
 
@@ -1080,7 +1090,7 @@ if [[ "$precompiled" == "true" ]]; then
     done
 
     echo
-    echo -e "$RED => === Missing Wallet Files in zip/tar/7z file ===$NC"
+    echo -e "$RED => === Missing Wallet Files in zip/tar/7z/rar file ===$NC"
     echo
     for type in "${!wallet_files_not_found[@]}"; do
         echo -e "$type: Not found"

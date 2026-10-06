@@ -51,6 +51,7 @@ DAEMONBUILDER_PACKAGES=(
     "libtool"
 
     "p7zip-full"
+    "unar"
     "zlib1g-dev"
 
     "libssl-dev"

@@ -98,12 +98,24 @@ extract_download() {
         *.zip) unzip -q "$src" -d "$dst" ;;
         *.7z) 7z x -y -o"$dst" "$src" >/dev/null ;;
         *.rar)
-            if command -v unar >/dev/null 2>&1; then
+            # Prefer 7z for RAR5. Some RAR5 archives are only
+            # partially supported by unar and can fail with:
+            # "Attempted to read more data than was available".
+            if command -v 7z >/dev/null 2>&1; then
+                if ! 7z x -y -o"$dst" "$src"; then
+                    print_warning "7z could not fully extract RAR archive; trying unar fallback"
+                    rm -rf "$dst"
+                    mkdir -p "$dst"
+                    if command -v unar >/dev/null 2>&1; then
+                        unar -f -o "$dst" "$src"
+                    else
+                        fatal "RAR extraction failed with 7z and unar is not installed"
+                    fi
+                fi
+            elif command -v unar >/dev/null 2>&1; then
                 unar -f -o "$dst" "$src"
-            elif command -v 7z >/dev/null 2>&1; then
-                7z x -y -o"$dst" "$src" >/dev/null
             else
-                fatal "RAR archive detected but neither unar nor 7z is installed"
+                fatal "RAR archive detected but neither 7z nor unar is installed"
             fi
             ;;
         *) cp -f "$src" "$dst/$(basename "$src")" ;;

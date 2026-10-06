@@ -134,9 +134,10 @@ RESULT=$(
         1 "Build UTXO Coin Daemon From Source Code" \
         2 "Update UTXO Coin Daemon From Source Code" \
         3 "Install Ethash / Etchash EVM Coin Node" \
+        4 "Install RandomX / CryptoNote Coin Node" \
         ' ' "───────────────────────────────────────" \
-        4 "$UPDATE_MENU_LABEL" \
-        5 "Exit DaemonBuilder"
+        5 "$UPDATE_MENU_LABEL" \
+        6 "Exit DaemonBuilder"
 )
 
 DIALOG_RC=$?
@@ -170,6 +171,12 @@ case "$RESULT" in
         ;;
 
     4)
+        clear
+        cd "$STORAGE_ROOT/daemon_builder" || exit 1
+        bash randomx.sh
+        ;;
+
+    5)
         UPDATE_TEXT="SQSYIIMP / DaemonBuilder
 
 Installed version:
@@ -225,7 +232,7 @@ SQSYIIMP is up to date."
         exec bash "$STORAGE_ROOT/daemon_builder/start.sh"
         ;;
 
-    5)
+    6)
         clear
         echo -e "$CYAN ------------------------------------------------------------------------------- $NC"
         echo -e "$YELLOW You have chosen to exit the Daemon Builder.$NC"

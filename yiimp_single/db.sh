@@ -161,6 +161,27 @@ for file in "${SQL_FILES[@]}"; do
 done
 
 # ------------------------------------------------------------
+# SQSYIIMP RandomX database integration
+# ------------------------------------------------------------
+
+RANDOMX_SQL="$HOME/sqsyiimp/yiimp_single/yiimp_confs/2026-10-06-add-randomx.sql"
+
+if [[ -f "$RANDOMX_SQL" ]]; then
+    print_status "Applying RandomX database integration..."
+    print_info "Processing RandomX migration '$RANDOMX_SQL'"
+
+    sudo mariadb \
+        -u root \
+        -p"${DBRootPassword}" \
+        "${YiiMPDBName}" \
+        < "$RANDOMX_SQL"
+
+    print_success "RandomX database integration applied"
+else
+    print_warning "RandomX SQL migration not found: $RANDOMX_SQL"
+fi
+
+# ------------------------------------------------------------
 # SQSYIIMP Quantus QPoW / Poseidon2 database integration
 # ------------------------------------------------------------
 

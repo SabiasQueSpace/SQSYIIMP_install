@@ -96,6 +96,16 @@ extract_download() {
         *.tar.xz|*.txz) tar -xJf "$src" -C "$dst" ;;
         *.tar.bz2|*.tbz2) tar -xjf "$src" -C "$dst" ;;
         *.zip) unzip -q "$src" -d "$dst" ;;
+        *.7z) 7z x -y -o"$dst" "$src" >/dev/null ;;
+        *.rar)
+            if command -v unar >/dev/null 2>&1; then
+                unar -f -o "$dst" "$src"
+            elif command -v 7z >/dev/null 2>&1; then
+                7z x -y -o"$dst" "$src" >/dev/null
+            else
+                fatal "RAR archive detected but neither unar nor 7z is installed"
+            fi
+            ;;
         *) cp -f "$src" "$dst/$(basename "$src")" ;;
     esac
 }

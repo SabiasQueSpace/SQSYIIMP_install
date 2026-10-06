@@ -212,9 +212,9 @@ print_info 'This mode is for Monero/CryptoNote-style RandomX nodes.'
 print_info 'This installer manages only the RandomX/CryptoNote node and wallet.'
 print_info 'Stratum source code and binaries are managed independently from SQSYIIMP_install.'
 
-coin_name=''; input_value 'Coin Name' 'Full coin name (example: Monero)' 'Monero' coin_name
+coin_name=''; input_value 'Coin Name' 'Full coin name (example: Monero)' '' coin_name
 [[ -n "${coin_name// }" ]] || fatal 'Coin name cannot be empty'
-coin_symbol=''; input_value 'Coin Symbol' 'YiiMP ticker/symbol (example: XMR)' 'XMR' coin_symbol
+coin_symbol=''; input_value 'Coin Symbol' 'YiiMP ticker/symbol (example: XMR)' '' coin_symbol
 coin_symbol="${coin_symbol^^}"; valid_symbol "$coin_symbol" || fatal "Invalid coin symbol: $coin_symbol"
 coin_id="$(printf '%s' "$coin_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')"
 input_value 'Coin Identifier' 'Filesystem/service identifier' "$coin_id" coin_id
@@ -226,20 +226,20 @@ install_mode=''; choose_menu 'Node Binaries' 'Choose how to provide the CryptoNo
 
 mkdir -p "$TMP_ROOT"; tmpdir="$(mktemp -d "$TMP_ROOT/randomx-${coin_id}.XXXXXX")"
 trap 'rm -rf "$tmpdir" 2>/dev/null || true' EXIT
-source_daemon=''; source_wallet=''; daemon_name='monerod'; wallet_name='monero-wallet-cli'
+source_daemon=''; source_wallet=''; daemon_name=''; wallet_name=''
 
 if [[ "$install_mode" == local ]]; then
-    input_value 'Daemon Binary' 'Absolute path to the CryptoNote daemon executable' '/usr/bin/monerod' source_daemon
+    input_value 'Daemon Binary' 'Absolute path to the CryptoNote daemon executable (example: /usr/bin/monerod)' '' source_daemon
     [[ -x "$source_daemon" ]] || fatal "Daemon executable not found: $source_daemon"
     daemon_name="$(basename "$source_daemon")"
-    input_value 'Wallet CLI' 'Absolute path to wallet CLI; leave empty if not available' '/usr/bin/monero-wallet-cli' source_wallet
+    input_value 'Wallet CLI' 'Absolute path to wallet CLI (example: /usr/bin/monero-wallet-cli); leave empty if unavailable' '' source_wallet
     [[ -z "$source_wallet" || -x "$source_wallet" ]] || fatal "Wallet executable not found: $source_wallet"
     [[ -z "$source_wallet" ]] || wallet_name="$(basename "$source_wallet")"
 else
     download_url=''; input_value 'Precompiled Package' 'Direct URL to a Linux archive containing the daemon and optionally wallet CLI' '' download_url
     [[ "$download_url" =~ ^https?:// ]] || fatal 'A valid http/https URL is required'
-    input_value 'Daemon Name' 'Daemon executable name inside archive' 'monerod' daemon_name
-    input_value 'Wallet CLI Name' 'Wallet CLI executable name inside archive; leave empty if unavailable' 'monero-wallet-cli' wallet_name
+    input_value 'Daemon Name' 'Daemon executable name inside archive (example: monerod)' '' daemon_name
+    input_value 'Wallet CLI Name' 'Wallet CLI executable name inside archive (example: monero-wallet-cli); leave empty if unavailable' '' wallet_name
     download_file="$tmpdir/$(basename "${download_url%%\?*}")"; [[ -n "${download_file##*/}" ]] || download_file="$tmpdir/package"
     print_status 'Downloading CryptoNote package...'; curl -fL --retry 3 --connect-timeout 15 "$download_url" -o "$download_file"
     extract_dir="$tmpdir/extracted"; extract_download "$download_file" "$extract_dir"

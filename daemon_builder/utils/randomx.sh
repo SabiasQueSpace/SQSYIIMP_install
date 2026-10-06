@@ -98,24 +98,31 @@ extract_download() {
         *.zip) unzip -q "$src" -d "$dst" ;;
         *.7z) 7z x -y -o"$dst" "$src" >/dev/null ;;
         *.rar)
-            # Prefer 7z for RAR5. Some RAR5 archives are only
-            # partially supported by unar and can fail with:
-            # "Attempted to read more data than was available".
+            # Prefer 7z for RAR5, then fall back to unar.
+            # A RAR extractor may return a non-zero status even when
+            # some usable binaries were extracted successfully.
+            rar_ok=0
+
             if command -v 7z >/dev/null 2>&1; then
-                if ! 7z x -y -o"$dst" "$src"; then
+                if 7z x -y -o"$dst" "$src"; then
+                    rar_ok=1
+                else
                     print_warning "7z could not fully extract RAR archive; trying unar fallback"
                     rm -rf "$dst"
                     mkdir -p "$dst"
-                    if command -v unar >/dev/null 2>&1; then
-                        unar -f -o "$dst" "$src"
-                    else
-                        fatal "RAR extraction failed with 7z and unar is not installed"
-                    fi
                 fi
-            elif command -v unar >/dev/null 2>&1; then
-                unar -f -o "$dst" "$src"
-            else
-                fatal "RAR archive detected but neither 7z nor unar is installed"
+            fi
+
+            if [[ "$rar_ok" -eq 0 ]] && command -v unar >/dev/null 2>&1; then
+                if unar -f -o "$dst" "$src"; then
+                    rar_ok=1
+                else
+                    print_warning "RAR archive was only partially extracted; checking available binaries"
+                fi
+            fi
+
+            if [[ "$rar_ok" -eq 0 ]] && [[ -z "$(find "$dst" -type f -print -quit 2>/dev/null)" ]]; then
+                fatal "RAR extraction failed and no files were recovered"
             fi
             ;;
         *) cp -f "$src" "$dst/$(basename "$src")" ;;
@@ -259,7 +266,13 @@ else
     chmod +x "$source_daemon"
     if [[ -n "$wallet_name" ]]; then
         source_wallet="$(find "$extract_dir" -type f -name "$wallet_name" -print -quit 2>/dev/null || true)"
-        [[ -z "$source_wallet" ]] || chmod +x "$source_wallet"
+
+        if [[ -n "$source_wallet" ]]; then
+            chmod +x "$source_wallet"
+        else
+            print_warning "Wallet CLI '$wallet_name' was not extracted/found; continuing with daemon only"
+            wallet_name=''
+        fi
     fi
 fi
 

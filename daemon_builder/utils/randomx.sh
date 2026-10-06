@@ -235,15 +235,18 @@ mkdir -p "$TMP_ROOT"; tmpdir="$(mktemp -d "$TMP_ROOT/randomx-${coin_id}.XXXXXX")
 trap 'rm -rf "$tmpdir" 2>/dev/null || true' EXIT
 source_daemon=''
 source_wallet=''
+source_wallet_rpc=''
 
 # Suggest CryptoNote binary names from the coin identifier.
 # The user can edit them because not every project follows
 # exactly the same naming convention.
 daemon_name="${coin_id}d"
 wallet_name="${coin_id}-wallet-cli"
+wallet_rpc_name="${coin_id}-wallet-rpc"
 
 default_daemon_path="/usr/bin/${daemon_name}"
 default_wallet_path="/usr/bin/${wallet_name}"
+default_wallet_rpc_path="/usr/bin/${wallet_rpc_name}"
 
 
 if [[ "$install_mode" == local ]]; then
@@ -251,13 +254,19 @@ if [[ "$install_mode" == local ]]; then
     [[ -x "$source_daemon" ]] || fatal "Daemon executable not found: $source_daemon"
     daemon_name="$(basename "$source_daemon")"
     input_value 'Wallet CLI' "Absolute path to wallet CLI (suggested: ${default_wallet_path}); leave empty if unavailable" "$default_wallet_path" source_wallet
-    [[ -z "$source_wallet" || -x "$source_wallet" ]] || fatal "Wallet executable not found: $source_wallet"
+    input_value 'Wallet RPC' "Absolute path to wallet RPC executable (suggested: ${default_wallet_rpc_path}); leave empty if unavailable" "$default_wallet_rpc_path" source_wallet_rpc
+
+    [[ -z "$source_wallet" || -x "$source_wallet" ]] || fatal "Wallet CLI executable not found: $source_wallet"
+    [[ -z "$source_wallet_rpc" || -x "$source_wallet_rpc" ]] || fatal "Wallet RPC executable not found: $source_wallet_rpc"
+
     [[ -z "$source_wallet" ]] || wallet_name="$(basename "$source_wallet")"
+    [[ -z "$source_wallet_rpc" ]] || wallet_rpc_name="$(basename "$source_wallet_rpc")"
 else
     download_url=''; input_value 'Precompiled Package' 'Direct URL to a Linux archive containing the daemon and optionally wallet CLI' '' download_url
     [[ "$download_url" =~ ^https?:// ]] || fatal 'A valid http/https URL is required'
     input_value 'Daemon Name' "Daemon executable name inside archive (suggested from coin identifier)" "$daemon_name" daemon_name
     input_value 'Wallet CLI Name' "Wallet CLI executable name inside archive (suggested from coin identifier); leave empty if unavailable" "$wallet_name" wallet_name
+    input_value 'Wallet RPC Name' "Wallet RPC executable name inside archive (suggested from coin identifier); leave empty if unavailable" "$wallet_rpc_name" wallet_rpc_name
     download_file="$tmpdir/$(basename "${download_url%%\?*}")"; [[ -n "${download_file##*/}" ]] || download_file="$tmpdir/package"
     print_status 'Downloading CryptoNote package...'; curl -fL --retry 3 --connect-timeout 15 "$download_url" -o "$download_file"
     extract_dir="$tmpdir/extracted"; extract_download "$download_file" "$extract_dir"
@@ -270,26 +279,125 @@ else
         if [[ -n "$source_wallet" ]]; then
             chmod +x "$source_wallet"
         else
-            print_warning "Wallet CLI '$wallet_name' was not extracted/found; continuing with daemon only"
+            print_warning "Wallet CLI '$wallet_name' was not extracted/found; continuing without wallet CLI"
             wallet_name=''
+        fi
+    fi
+
+    if [[ -n "$wallet_rpc_name" ]]; then
+        source_wallet_rpc="$(find "$extract_dir" -type f -name "$wallet_rpc_name" -print -quit 2>/dev/null || true)"
+
+        if [[ -n "$source_wallet_rpc" ]]; then
+            chmod +x "$source_wallet_rpc"
+            print_success "Wallet RPC found: $wallet_rpc_name"
+        else
+            print_warning "Wallet RPC '$wallet_rpc_name' was not extracted/found"
+            wallet_rpc_name=''
         fi
     fi
 fi
 
 installed_daemon="/usr/bin/${coin_id}d"
 installed_wallet=''
+installed_wallet_rpc=''
+
 print_status "Installing daemon as $installed_daemon..."
 sudo install -o root -g root -m 0755 "$source_daemon" "$installed_daemon"
+
 if [[ -n "$source_wallet" ]]; then
     installed_wallet="/usr/bin/${coin_id}-wallet-cli"
     print_status "Installing wallet CLI as $installed_wallet..."
     sudo install -o root -g root -m 0755 "$source_wallet" "$installed_wallet"
 fi
 
-rpc_port="$(find_free_tcp_port 18081 18999 || true)"; [[ -n "$rpc_port" ]] || fatal 'No free RPC port found'
-input_value 'Daemon RPC Port' 'Local CryptoNote daemon RPC port' "$rpc_port" rpc_port; valid_port "$rpc_port" || fatal 'Invalid RPC port'; port_is_free_tcp "$rpc_port" || fatal 'RPC port is already in use'
-p2p_port="$(find_free_tcp_port 18080 18999 || true)"; [[ -n "$p2p_port" ]] || fatal 'No free P2P port found'
-input_value 'P2P Port' 'CryptoNote peer-to-peer port' "$p2p_port" p2p_port; valid_port "$p2p_port" || fatal 'Invalid P2P port'; port_is_free_tcp "$p2p_port" || fatal 'P2P port is already in use'
+if [[ -n "$source_wallet_rpc" ]]; then
+    installed_wallet_rpc="/usr/bin/${coin_id}-wallet-rpc"
+    print_status "Installing wallet RPC as $installed_wallet_rpc..."
+    sudo install -o root -g root -m 0755 "$source_wallet_rpc" "$installed_wallet_rpc"
+fi
+
+
+# ---------------------------------------------------------
+# Runtime dependency validation
+# ---------------------------------------------------------
+
+check_binary_dependencies() {
+    local binary="$1"
+    local label="$2"
+    local ldd_output missing
+
+    [[ -n "$binary" && -x "$binary" ]] || return 0
+
+    if ! command -v ldd >/dev/null 2>&1; then
+        print_warning "ldd is unavailable; dependency check skipped for $label"
+        return 0
+    fi
+
+    ldd_output="$(ldd "$binary" 2>&1 || true)"
+    missing="$(printf '%s\n' "$ldd_output" | awk '/=> not found/ {print $1}')"
+
+    if [[ -n "$missing" ]]; then
+        print_warning "$label has missing runtime libraries:"
+        while IFS= read -r lib; do
+            [[ -n "$lib" ]] && printf '   - %s\n' "$lib"
+        done <<< "$missing"
+        return 1
+    fi
+
+    print_success "$label runtime dependencies are available"
+    return 0
+}
+
+daemon_dependencies_ok=1
+
+if ! check_binary_dependencies "$installed_daemon" "CryptoNote daemon"; then
+    daemon_dependencies_ok=0
+fi
+
+if [[ -n "$installed_wallet_rpc" ]]; then
+    check_binary_dependencies "$installed_wallet_rpc" "CryptoNote wallet RPC" ||         print_warning 'Wallet RPC will not be started until its dependencies are resolved'
+fi
+
+if [[ -n "$installed_wallet" ]]; then
+    check_binary_dependencies "$installed_wallet" "CryptoNote wallet CLI" ||         print_warning 'Wallet CLI is installed but currently cannot run'
+fi
+
+
+rpc_port="$(find_free_tcp_port 18081 18999 || true)"
+[[ -n "$rpc_port" ]] || fatal 'No free daemon RPC port found'
+
+input_value     'Daemon RPC Port'     'Local CryptoNote daemon RPC port'     "$rpc_port"     rpc_port
+
+valid_port "$rpc_port" || fatal 'Invalid daemon RPC port'
+port_is_free_tcp "$rpc_port" || fatal 'Daemon RPC port is already in use'
+
+
+wallet_rpc_port=''
+
+if [[ -n "$installed_wallet_rpc" ]]; then
+    wallet_rpc_port="$(find_free_tcp_port 18083 18999 || true)"
+    [[ -n "$wallet_rpc_port" ]] || fatal 'No free Wallet RPC port found'
+
+    input_value         'Wallet RPC Port'         'Local CryptoNote wallet RPC port used by YiiMP'         "$wallet_rpc_port"         wallet_rpc_port
+
+    valid_port "$wallet_rpc_port" || fatal 'Invalid Wallet RPC port'
+    port_is_free_tcp "$wallet_rpc_port" || fatal 'Wallet RPC port is already in use'
+
+    [[ "$wallet_rpc_port" != "$rpc_port" ]] ||         fatal 'Wallet RPC port must be different from daemon RPC port'
+fi
+
+
+p2p_port="$(find_free_tcp_port 18080 18999 || true)"
+[[ -n "$p2p_port" ]] || fatal 'No free P2P port found'
+
+input_value     'P2P Port'     'CryptoNote peer-to-peer port'     "$p2p_port"     p2p_port
+
+valid_port "$p2p_port" || fatal 'Invalid P2P port'
+port_is_free_tcp "$p2p_port" || fatal 'P2P port is already in use'
+
+[[ "$p2p_port" != "$rpc_port" ]] ||     fatal 'P2P port must be different from daemon RPC port'
+
+[[ -z "$wallet_rpc_port" || "$p2p_port" != "$wallet_rpc_port" ]] ||     fatal 'P2P port must be different from Wallet RPC port'
 
 # Extra daemon arguments are optional.
 # Most CryptoNote/RandomX nodes do not need anything here.
@@ -354,10 +462,21 @@ runtime_args+=("${extra_args[@]}")
 write_runner "$runner" "$installed_daemon" "${runtime_args[@]}"
 write_systemd_service "$service_file" "$runner" "SQSYIIMP ${coin_name} RandomX/CryptoNote node"
 
-if confirm_yesno 'Start RandomX Node' "Start ${coin_name} now and enable it at boot?"; then
-    sudo systemctl enable --now "$service_name"
-    sleep 2
-    sudo systemctl is-active --quiet "$service_name" && print_success 'CryptoNote node service is running' || print_warning "Service did not remain active; inspect: sudo journalctl -u $service_name -n 100 --no-pager"
+if [[ "$daemon_dependencies_ok" -eq 1 ]]; then
+    if confirm_yesno 'Start RandomX Node' "Start ${coin_name} now and enable it at boot?"; then
+        sudo systemctl enable --now "$service_name"
+        sleep 2
+
+        if sudo systemctl is-active --quiet "$service_name"; then
+            print_success 'CryptoNote node service is running'
+        else
+            print_warning "Service did not remain active; inspect:"
+            print_warning "sudo journalctl -u $service_name -n 100 --no-pager"
+        fi
+    fi
+else
+    print_warning 'Node service was created but will NOT be started.'
+    print_warning 'Resolve the missing daemon libraries first, then start the service manually.'
 fi
 
 metadata_file="$MANAGED_DIR/${coin_symbol,,}.conf"
@@ -369,6 +488,8 @@ print_success "$coin_name node/wallet installation is complete"
 print_info "Node status : sudo systemctl status $service_name --no-pager"
 print_info "Node log    : sudo journalctl -u $service_name -f"
 print_info "Daemon RPC  : http://127.0.0.1:$rpc_port"
+[[ -z "$wallet_rpc_port" ]] || print_info "Wallet RPC  : http://127.0.0.1:$wallet_rpc_port"
+[[ -z "$installed_wallet_rpc" ]] || print_info "Wallet RPC binary : $installed_wallet_rpc"
 [[ -z "$wallet_file" ]] || print_info "Wallet file : $wallet_file"
 print_info 'Stratum binaries/source are intentionally not managed by SQSYIIMP_install.'
 print_warning 'Verify the coin-specific YiiMP RPC/coin fields before enabling production payouts; CryptoNote coins are not Bitcoin-RPC compatible.'

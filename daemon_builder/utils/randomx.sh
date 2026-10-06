@@ -291,8 +291,28 @@ input_value 'Daemon RPC Port' 'Local CryptoNote daemon RPC port' "$rpc_port" rpc
 p2p_port="$(find_free_tcp_port 18080 18999 || true)"; [[ -n "$p2p_port" ]] || fatal 'No free P2P port found'
 input_value 'P2P Port' 'CryptoNote peer-to-peer port' "$p2p_port" p2p_port; valid_port "$p2p_port" || fatal 'Invalid P2P port'; port_is_free_tcp "$p2p_port" || fatal 'P2P port is already in use'
 
-extra_args_text=''; input_value 'Additional Daemon Arguments' 'Optional coin/network-specific daemon arguments' '' extra_args_text
-mapfile -t extra_args < <(parse_shell_words "$extra_args_text")
+# Extra daemon arguments are optional.
+# Most CryptoNote/RandomX nodes do not need anything here.
+declare -a extra_args=()
+
+if confirm_yesno     'Advanced Daemon Arguments'     'Most coins do not need additional daemon arguments.
+
+Only configure this if the coin documentation requires extra options.
+
+Configure additional daemon arguments?'
+then
+    extra_args_text=''
+    input_value         'Additional Daemon Arguments'         'Optional coin/network-specific daemon arguments.
+
+Example:
+--add-exclusive-node 1.2.3.4:12345
+
+Leave empty if no additional arguments are required.'         ''         extra_args_text
+
+    if [[ -n "${extra_args_text// }" ]]; then
+        mapfile -t extra_args < <(parse_shell_words "$extra_args_text")
+    fi
+fi
 
 datadir="$STORAGE_ROOT/wallets/.${coin_id}"
 sudo install -d -o "$STORAGE_USER" -g "$STORAGE_GROUP" -m 0750 "$STORAGE_ROOT/wallets" "$datadir"

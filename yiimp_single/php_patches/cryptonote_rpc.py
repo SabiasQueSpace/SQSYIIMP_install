@@ -1,19 +1,95 @@
 #!/usr/bin/env python3
 
 from pathlib import Path
+import argparse
+import os
 import re
 import sys
-
-SITE = Path("/home/crypto-data/yiimp/site")
-
-wallet_rpc = SITE / "web/yaamp/core/rpc/wallet-rpc.php"
-xmr_rpc = SITE / "web/yaamp/core/rpc/xmr-rpc.php"
 
 
 def fail(msg):
     print(f"ERROR: {msg}", file=sys.stderr)
     raise SystemExit(1)
 
+
+def read_storage_root(config_path=Path("/etc/yiimpool.conf")):
+    if not config_path.is_file():
+        return None
+
+    try:
+        content = config_path.read_text()
+    except OSError:
+        return None
+
+    pattern = re.compile(
+        r"""(?mx)
+        ^\s*
+        (?:export\s+)?
+        STORAGE_ROOT
+        \s*=\s*
+        (?:
+            "([^"]*)"
+            |
+            '([^']*)'
+            |
+            ([^#\s]+)
+        )
+        """
+    )
+
+    match = pattern.search(content)
+
+    if not match:
+        return None
+
+    return next(
+        (value for value in match.groups() if value is not None),
+        None,
+    )
+
+
+def resolve_site():
+    parser = argparse.ArgumentParser(
+        description="Apply SQSYIIMP CryptoNote/XMR YiiMP PHP compatibility patches."
+    )
+
+    parser.add_argument(
+        "--site",
+        help="Absolute path to the YiiMP site directory.",
+    )
+
+    args = parser.parse_args()
+
+    if args.site:
+        return Path(args.site).expanduser()
+
+    env_site = os.environ.get("YIIMP_SITE", "").strip()
+
+    if env_site:
+        return Path(env_site).expanduser()
+
+    storage_root = os.environ.get("STORAGE_ROOT", "").strip()
+
+    if not storage_root:
+        storage_root = read_storage_root() or ""
+
+    if storage_root:
+        return Path(storage_root).expanduser() / "yiimp/site"
+
+    fail(
+        "No se pudo determinar YiiMP site. "
+        "Use --site, YIIMP_SITE, STORAGE_ROOT o configure "
+        "STORAGE_ROOT en /etc/yiimpool.conf."
+    )
+
+
+SITE = resolve_site()
+
+wallet_rpc = SITE / "web/yaamp/core/rpc/wallet-rpc.php"
+xmr_rpc = SITE / "web/yaamp/core/rpc/xmr-rpc.php"
+
+
+print(f"INFO: YiiMP site: {SITE}")
 
 if not wallet_rpc.exists():
     fail(f"No existe {wallet_rpc}")

@@ -2964,6 +2964,53 @@ register_autostart() {
 }
 
 
+unregister_autostart() {
+    local marker="stratum.$coinsymbollower start"
+    local compatibility_marker="sqs-stratum-$coinsymbollower start"
+    local runtime_user="${STORAGE_USER:?STORAGE_USER is not configured}"
+    local current_user=""
+
+    if ! command -v crontab >/dev/null 2>&1; then
+        print_info \
+            "crontab is not available; no Stratum autostart entry to remove"
+        return 0
+    fi
+
+    if [[ -r /etc/default/sqsyiimp ]]; then
+        local YIIMP_USER=""
+        # shellcheck disable=SC1091
+        source /etc/default/sqsyiimp
+        runtime_user="${YIIMP_USER:-$runtime_user}"
+    fi
+
+    if ! id "$runtime_user" >/dev/null 2>&1; then
+        print_warning "Runtime user does not exist: $runtime_user"
+        return 1
+    fi
+
+    current_user="$(id -un)"
+
+    {
+        crontab -l 2>/dev/null |
+            grep -vF "$marker" |
+            grep -vF "$compatibility_marker" ||
+            true
+    } | crontab -
+
+    if [[ "$current_user" != "$runtime_user" ]]; then
+        {
+            sudo -u "$runtime_user" crontab -l 2>/dev/null |
+                grep -vF "$marker" |
+                grep -vF "$compatibility_marker" ||
+                true
+        } | sudo -u "$runtime_user" crontab -
+    fi
+
+    print_info \
+        "Stratum autostart removed for ${coinsymbol}"
+}
+
+
 save_managed_coin_metadata() {
     local metadata_file="$MANAGED_DIR/${coinsymbollower}.conf"
     local tmp=""
@@ -3199,8 +3246,6 @@ EOF_HELP
         fatal "Installed launcher config mismatch: expected ${CONFIG_PATH##*/}, got ${installed_config:-none}"
     fi
 
-    sudo ufw allow "$coinport" >/dev/null 2>&1 || print_warning "Unable to add UFW rule for port $coinport"
-
     #
     # Stop only the Stratum service managed for this coin.
     # Never kill arbitrary processes merely because they own
@@ -3225,7 +3270,28 @@ EOF_HELP
 
     if [[ "${SQSYIIMP_STRATUM_DEFER_START:-false}" == "true" ]]; then
 
+        #
+        # A deferred Stratum must remain inactive across reboots.
+        # Remove any previous SQSYIIMP-managed autostart entry.
+        #
+        if ! unregister_autostart; then
+            print_warning "Could not remove existing Stratum autostart"
+            return 1 2>/dev/null || exit 1
+        fi
+
+        #
+        # Do not expose a Stratum that is intentionally inactive.
+        # Remove a previous SQSYIIMP UFW rule for this dedicated
+        # port when UFW is available.
+        #
+        if command -v ufw >/dev/null 2>&1; then
+            sudo ufw --force delete allow "$coinport" \
+                >/dev/null 2>&1 || true
+        fi
+
         print_info "Stratum automatic start has been deferred."
+        print_info "Stratum autostart is disabled."
+        print_info "Public firewall access remains closed."
         print_info "Configuration, launcher and metadata were created."
         print_info "Start later with: $SERVICE_COMMAND start"
 
@@ -3235,6 +3301,15 @@ EOF_HELP
 
         if "$SERVICE_COMMAND" start; then
             print_success "Stratum service started"
+
+            #
+            # Only expose the port after the managed Stratum has
+            # successfully passed its startup/health checks.
+            #
+            if command -v ufw >/dev/null 2>&1; then
+                sudo ufw allow "$coinport" >/dev/null 2>&1 || \
+                    print_warning "Unable to add UFW rule for port $coinport"
+            fi
 
             if register_autostart; then
                 print_success "Stratum autostart registered"

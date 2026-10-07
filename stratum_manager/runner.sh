@@ -156,7 +156,7 @@ main() {
     # accepts these configurations directly and must not receive
     # the legacy extensionless alias.
     case "${config_path##*/}" in
-        *.ethash.conf|*.etchash.conf)
+        *.ethash.conf|*.etchash.conf|*.randomx.conf)
             config_arg="$config_path"
             ;;
         *)

@@ -750,22 +750,20 @@ find_mysql_client() {
 }
 
 detect_yiimp_database() {
-    local client="$1"
-    local cnf="$2"
+    local yiimp_conf="$STORAGE_ROOT/yiimp/.yiimp.conf"
     local db=""
 
-    db="$(
-        sudo "$client" \
-            --defaults-extra-file="$cnf" \
-            --defaults-group-suffix=mysql \
-            -Nse "
-SELECT TABLE_SCHEMA
-FROM information_schema.TABLES
-WHERE TABLE_NAME='coins'
-ORDER BY TABLE_SCHEMA
-LIMIT 1;
-" 2>/dev/null || true
-    )"
+    if sudo test -r "$yiimp_conf"; then
+        db="$(
+            sudo bash -c '
+                set +u
+                source "$1"
+                printf "%s\n" "${YiiMPDBName:-}"
+            ' _ "$yiimp_conf" 2>/dev/null || true
+        )"
+    fi
+
+    [[ -n "$db" ]] || return 1
 
     printf '%s\n' "$db"
 }
@@ -845,7 +843,7 @@ configure_yiimp_coin() {
         return 1
     }
 
-    yiimp_db="$(detect_yiimp_database "$mysql_client" "$mysql_cnf")"
+    yiimp_db="$(detect_yiimp_database || true)"
 
     [[ -n "$yiimp_db" ]] || {
         print_warning 'Could not detect YiiMP database containing the coins table'

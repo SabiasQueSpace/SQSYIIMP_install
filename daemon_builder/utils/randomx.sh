@@ -4,11 +4,12 @@
 # SQSYIIMP
 # RandomX / CryptoNote node installer for DaemonBuilder
 #
-# Installs a Monero/CryptoNote-style daemon and optional
-# wallet CLI and creates a systemd node service.
+# Installs a Monero/CryptoNote-style daemon, wallet CLI,
+# wallet RPC and their runtime services.
 #
-# IMPORTANT: SQSYIIMP_install is independent from Stratum source code.
-# This script does NOT download, build, install, or modify any Stratum binary.
+# Stratum source code remains independent. SQSYIIMP may configure
+# or compile a selected Stratum repository, but does not modify its
+# C/C++ source code.
 ############################################################
 
 set -euo pipefail
@@ -168,6 +169,37 @@ EOF_SERVICE
     sudo chmod 0644 "$file"
     sudo systemctl daemon-reload
 }
+write_wallet_rpc_service() {
+    local file="$1"
+    local wallet_runner="$2"
+    local desc="$3"
+    local daemon_service="$4"
+
+    sudo tee "$file" >/dev/null <<EOF_SERVICE
+[Unit]
+Description=$desc
+After=network-online.target $daemon_service
+Wants=network-online.target
+Requires=$daemon_service
+
+[Service]
+Type=simple
+User=$STORAGE_USER
+Group=$STORAGE_GROUP
+ExecStart=$wallet_runner
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=180
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
+
+    sudo chmod 0644 "$file"
+    sudo systemctl daemon-reload
+}
+
 save_node_metadata() {
     local file="$1" tmp; tmp="$(mktemp)"
     sudo mkdir -p "$MANAGED_DIR"
@@ -181,7 +213,7 @@ WALLET_SYMBOL=$coin_symbol
 ID=$coin_id
 EOF_BASE
     fi
-    grep -Ev '^(NODE_TYPE|COIN_NAME|DAEMON_BINARY|CLI_BINARY|TX_BINARY|UTIL_BINARY|HASH_BINARY|WALLET_BINARY|QT_BINARY|DAEMON_DATADIR|DAEMON_CONF|DAEMON_BOOT_LOG|DAEMON_SERVICE|DAEMON_SERVICE_FILE|DAEMON_RUNNER|DAEMON_RPC_PORT|DAEMON_RPC_URL|DAEMON_P2P_PORT|RPC_HELPER_BINARY|POOL_WALLET_FILE)=' "$tmp" > "${tmp}.clean" || true
+    grep -Ev '^(NODE_TYPE|COIN_NAME|DAEMON_BINARY|CLI_BINARY|TX_BINARY|UTIL_BINARY|HASH_BINARY|WALLET_BINARY|QT_BINARY|DAEMON_DATADIR|DAEMON_CONF|DAEMON_BOOT_LOG|DAEMON_SERVICE|DAEMON_SERVICE_FILE|DAEMON_RUNNER|DAEMON_RPC_PORT|DAEMON_RPC_URL|DAEMON_P2P_PORT|RPC_HELPER_BINARY|POOL_WALLET_FILE|POOL_WALLET_PASSWORD_FILE|WALLET_RPC_BINARY|WALLET_RPC_PORT|WALLET_RPC_URL|WALLET_RPC_SERVICE|WALLET_RPC_SERVICE_FILE|WALLET_RPC_RUNNER)=' "$tmp" > "${tmp}.clean" || true
     mv "${tmp}.clean" "$tmp"
     cat >> "$tmp" <<EOF_NODE
 NODE_TYPE=cryptonote
@@ -204,6 +236,13 @@ DAEMON_RPC_URL=http://127.0.0.1:$rpc_port
 DAEMON_P2P_PORT=$p2p_port
 RPC_HELPER_BINARY=
 POOL_WALLET_FILE=${wallet_file:-}
+POOL_WALLET_PASSWORD_FILE=${wallet_password_file:-}
+WALLET_RPC_BINARY=${installed_wallet_rpc:+$(basename "$installed_wallet_rpc")}
+WALLET_RPC_PORT=${wallet_rpc_port:-}
+WALLET_RPC_URL=${wallet_rpc_port:+http://127.0.0.1:$wallet_rpc_port}
+WALLET_RPC_SERVICE=${wallet_rpc_service_name:-}
+WALLET_RPC_SERVICE_FILE=${wallet_rpc_service_file:-}
+WALLET_RPC_RUNNER=${wallet_rpc_runner:-}
 EOF_NODE
     sudo install -o root -g root -m 0644 "$tmp" "$file"
     rm -f "$tmp"
@@ -216,8 +255,8 @@ id "$STORAGE_USER" >/dev/null 2>&1 || fatal "Storage user does not exist: $STORA
 clear 2>/dev/null || true
 print_header 'RandomX / CryptoNote Coin Installation'
 print_info 'This mode is for Monero/CryptoNote-style RandomX nodes.'
-print_info 'This installer manages only the RandomX/CryptoNote node and wallet.'
-print_info 'Stratum source code and binaries are managed independently from SQSYIIMP_install.'
+print_info 'This installer manages the RandomX/CryptoNote node, wallet and Wallet RPC runtime.'
+print_info 'Stratum source remains independent and is never patched by this installer.'
 
 coin_name=''; input_value 'Coin Name' 'Full coin name (example: Monero)' '' coin_name
 [[ -n "${coin_name// }" ]] || fatal 'Coin name cannot be empty'
@@ -426,31 +465,96 @@ datadir="$STORAGE_ROOT/wallets/.${coin_id}"
 sudo install -d -o "$STORAGE_USER" -g "$STORAGE_GROUP" -m 0750 "$STORAGE_ROOT/wallets" "$datadir"
 
 wallet_file=''
+wallet_password_file=''
+wallet_rpc_runner=''
+wallet_rpc_service_name=''
+wallet_rpc_service_file=''
+
 if [[ -n "$installed_wallet" ]]; then
-    wallet_mode=''; choose_menu 'Pool Wallet' 'Choose whether to create a local CryptoNote wallet now.' wallet_mode \
+    wallet_mode=''
+    choose_menu \
+        'Pool Wallet' \
+        'Choose whether to create a local CryptoNote pool wallet now.' \
+        wallet_mode \
         skip 'Skip wallet creation / use an existing external reward address' \
-        create 'Create a new local encrypted wallet'
+        create 'Create a new local encrypted pool wallet'
+
     if [[ "$wallet_mode" == create ]]; then
-        wallet_file="$datadir/${coin_id}-pool-wallet"
-        wallet_password=''; wallet_password_confirm=''
-        input_secret 'New Pool Wallet' 'Password for the new encrypted wallet' wallet_password
-        [[ -n "$wallet_password" ]] || fatal 'Wallet password cannot be empty'
-        input_secret 'Confirm Wallet Password' 'Repeat the wallet password' wallet_password_confirm
-        [[ "$wallet_password" == "$wallet_password_confirm" ]] || fatal 'Wallet passwords do not match'
-        passfile="$(sudo -u "$STORAGE_USER" mktemp "/tmp/sqsyiimp-${coin_id}-wallet.XXXXXX")"
-        printf '%s\n' "$wallet_password" | sudo -u "$STORAGE_USER" tee "$passfile" >/dev/null
-        sudo -u "$STORAGE_USER" chmod 0600 "$passfile"
+
+        wallet_dir="$datadir/wallet"
+        wallet_file="$wallet_dir/pool"
+        wallet_password_file="$wallet_dir/pool.password"
+
+        sudo install \
+            -d \
+            -o "$STORAGE_USER" \
+            -g "$STORAGE_GROUP" \
+            -m 0700 \
+            "$wallet_dir"
+
+        password_mode=''
+        choose_menu \
+            'Pool Wallet Password' \
+            'Choose how the pool wallet password will be created.' \
+            password_mode \
+            generate 'Generate a strong random password and store it securely' \
+            manual 'Enter the wallet password manually'
+
+        if [[ "$password_mode" == generate ]]; then
+            need_cmd openssl
+
+            sudo -u "$STORAGE_USER" bash -c \
+                "umask 077; openssl rand -base64 32 > '$wallet_password_file'"
+
+        else
+            wallet_password=''
+            wallet_password_confirm=''
+
+            input_secret \
+                'New Pool Wallet' \
+                'Password for the new encrypted wallet' \
+                wallet_password
+
+            [[ -n "$wallet_password" ]] ||
+                fatal 'Wallet password cannot be empty'
+
+            input_secret \
+                'Confirm Wallet Password' \
+                'Repeat the wallet password' \
+                wallet_password_confirm
+
+            [[ "$wallet_password" == "$wallet_password_confirm" ]] ||
+                fatal 'Wallet passwords do not match'
+
+            printf '%s\n' "$wallet_password" |
+                sudo -u "$STORAGE_USER" tee "$wallet_password_file" >/dev/null
+
+            sudo -u "$STORAGE_USER" chmod 0600 "$wallet_password_file"
+
+            wallet_password=''
+            wallet_password_confirm=''
+        fi
+
+        sudo chown \
+            "$STORAGE_USER:$STORAGE_GROUP" \
+            "$wallet_password_file"
+
+        sudo chmod 0600 "$wallet_password_file"
+
         print_status "Creating encrypted wallet: $wallet_file"
+
         if ! sudo -u "$STORAGE_USER" "$installed_wallet" \
             --generate-new-wallet "$wallet_file" \
-            --password-file "$passfile" \
+            --password-file "$wallet_password_file" \
             --mnemonic-language English \
-            --command exit; then
-            sudo rm -f "$passfile"; fatal 'Wallet creation failed. Check this coin wallet-cli arguments.'
+            --command exit
+        then
+            fatal 'Wallet creation failed. Check this coin wallet-cli arguments.'
         fi
-        sudo rm -f "$passfile"; wallet_password=''; wallet_password_confirm=''
+
         print_success "Wallet created: $wallet_file"
-        print_warning 'Back up the wallet files and seed immediately. SQSYIIMP does not store the password.'
+        print_info "Wallet password file: $wallet_password_file"
+        print_warning 'Back up the wallet seed offline. Never expose the seed or password file.'
     fi
 fi
 
@@ -461,6 +565,17 @@ declare -a runtime_args=(--data-dir "$datadir" --rpc-bind-ip 127.0.0.1 --rpc-bin
 runtime_args+=("${extra_args[@]}")
 write_runner "$runner" "$installed_daemon" "${runtime_args[@]}"
 write_systemd_service "$service_file" "$runner" "SQSYIIMP ${coin_name} RandomX/CryptoNote node"
+
+wallet_rpc_dependencies_ok=1
+
+if [[ -n "$installed_wallet_rpc" ]]; then
+    if ! check_binary_dependencies \
+        "$installed_wallet_rpc" \
+        "CryptoNote wallet RPC"
+    then
+        wallet_rpc_dependencies_ok=0
+    fi
+fi
 
 if [[ "$daemon_dependencies_ok" -eq 1 ]]; then
     if confirm_yesno 'Start RandomX Node' "Start ${coin_name} now and enable it at boot?"; then
@@ -479,6 +594,62 @@ else
     print_warning 'Resolve the missing daemon libraries first, then start the service manually.'
 fi
 
+if [[ -n "$installed_wallet_rpc" ]] &&
+   [[ -n "$wallet_file" ]] &&
+   [[ -n "$wallet_password_file" ]]
+then
+
+    wallet_rpc_runner="/usr/local/lib/sqsyiimp/${coin_id}-randomx-wallet-rpc"
+    wallet_rpc_service_name="sqsyiimp-${coin_id}-wallet-rpc.service"
+    wallet_rpc_service_file="/etc/systemd/system/$wallet_rpc_service_name"
+
+    declare -a wallet_rpc_args=(
+        --wallet-file "$wallet_file"
+        --password-file "$wallet_password_file"
+        --daemon-address "127.0.0.1:$rpc_port"
+        --rpc-bind-ip 127.0.0.1
+        --rpc-bind-port "$wallet_rpc_port"
+        --disable-rpc-login
+    )
+
+    write_runner \
+        "$wallet_rpc_runner" \
+        "$installed_wallet_rpc" \
+        "${wallet_rpc_args[@]}"
+
+    write_wallet_rpc_service \
+        "$wallet_rpc_service_file" \
+        "$wallet_rpc_runner" \
+        "SQSYIIMP ${coin_name} Wallet RPC" \
+        "$service_name"
+
+    if [[ "$wallet_rpc_dependencies_ok" -eq 1 ]] &&
+       sudo systemctl is-active --quiet "$service_name"
+    then
+        if confirm_yesno \
+            'Start Wallet RPC' \
+            "Start ${coin_name} Wallet RPC now and enable it at boot?"
+        then
+            sudo systemctl enable --now "$wallet_rpc_service_name"
+            sleep 2
+
+            if sudo systemctl is-active --quiet "$wallet_rpc_service_name"; then
+                print_success 'CryptoNote Wallet RPC service is running'
+            else
+                print_warning 'Wallet RPC service did not remain active; inspect:'
+                print_warning \
+                    "sudo journalctl -u $wallet_rpc_service_name -n 100 --no-pager"
+            fi
+        fi
+    else
+        print_warning \
+            'Wallet RPC service was created but was not started automatically.'
+    fi
+elif [[ -n "$installed_wallet_rpc" ]]; then
+    print_warning \
+        'Wallet RPC binary is installed, but no local pool wallet/password file is configured.'
+fi
+
 metadata_file="$MANAGED_DIR/${coin_symbol,,}.conf"
 save_node_metadata "$metadata_file"
 
@@ -491,5 +662,7 @@ print_info "Daemon RPC  : http://127.0.0.1:$rpc_port"
 [[ -z "$wallet_rpc_port" ]] || print_info "Wallet RPC  : http://127.0.0.1:$wallet_rpc_port"
 [[ -z "$installed_wallet_rpc" ]] || print_info "Wallet RPC binary : $installed_wallet_rpc"
 [[ -z "$wallet_file" ]] || print_info "Wallet file : $wallet_file"
-print_info 'Stratum binaries/source are intentionally not managed by SQSYIIMP_install.'
+[[ -z "$wallet_password_file" ]] || print_info "Wallet password file : $wallet_password_file"
+[[ -z "$wallet_rpc_service_name" ]] || print_info "Wallet RPC status : sudo systemctl status $wallet_rpc_service_name --no-pager"
+print_info 'Stratum source code remains independent and is not modified by this installer.'
 print_warning 'Verify the coin-specific YiiMP RPC/coin fields before enabling production payouts; CryptoNote coins are not Bitcoin-RPC compatible.'

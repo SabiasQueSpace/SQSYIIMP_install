@@ -735,6 +735,299 @@ fi
 # Runtime dependency validation
 # ---------------------------------------------------------
 
+find_mysql_client() {
+    if command -v mariadb >/dev/null 2>&1; then
+        command -v mariadb
+        return 0
+    fi
+
+    if command -v mysql >/dev/null 2>&1; then
+        command -v mysql
+        return 0
+    fi
+
+    return 1
+}
+
+detect_yiimp_database() {
+    local client="$1"
+    local cnf="$2"
+    local db=""
+
+    db="$(
+        sudo "$client" \
+            --defaults-extra-file="$cnf" \
+            --defaults-group-suffix=mysql \
+            -Nse "
+SELECT TABLE_SCHEMA
+FROM information_schema.TABLES
+WHERE TABLE_NAME='coins'
+ORDER BY TABLE_SCHEMA
+LIMIT 1;
+" 2>/dev/null || true
+    )"
+
+    printf '%s\n' "$db"
+}
+
+sql_escape() {
+    local value="${1:-}"
+    value="${value//\\/\\\\}"
+    value="${value//\'/\'\'}"
+    printf '%s' "$value"
+}
+
+get_wallet_rpc_address() {
+    local port="$1"
+    local response=""
+    local address=""
+
+    [[ -n "$port" ]] || return 1
+
+    response="$(
+        curl -fsS \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":"0","method":"get_address","params":{}}' \
+            "http://127.0.0.1:${port}/json_rpc" \
+            2>/dev/null || true
+    )"
+
+    [[ -n "$response" ]] || return 1
+
+    address="$(
+        printf '%s' "$response" |
+        python3 -c '
+import json, sys
+try:
+    obj = json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+
+result = obj.get("result") or {}
+address = result.get("address") or ""
+
+if not address:
+    addresses = result.get("addresses") or []
+    if addresses and isinstance(addresses[0], dict):
+        address = addresses[0].get("address") or ""
+
+if address:
+    print(address)
+'
+    )" || return 1
+
+    [[ -n "$address" ]] || return 1
+    printf '%s\n' "$address"
+}
+
+configure_yiimp_coin() {
+    local mysql_cnf="$STORAGE_ROOT/yiimp/.my.cnf"
+    local mysql_client=""
+    local yiimp_db=""
+    local master_wallet=""
+    local existing_id=""
+    local q_name=""
+    local q_symbol=""
+    local q_wallet=""
+    local q_program=""
+    local q_conf_folder=""
+    local dedicated_port_sql="NULL"
+    local wallet_rpc_port_sql="NULL"
+
+    if ! sudo test -r "$mysql_cnf"; then
+        print_warning "YiiMP database credentials file not readable: $mysql_cnf"
+        return 1
+    fi
+
+    mysql_client="$(find_mysql_client || true)"
+    [[ -n "$mysql_client" ]] || {
+        print_warning 'MariaDB/MySQL client is not installed'
+        return 1
+    }
+
+    yiimp_db="$(detect_yiimp_database "$mysql_client" "$mysql_cnf")"
+
+    [[ -n "$yiimp_db" ]] || {
+        print_warning 'Could not detect YiiMP database containing the coins table'
+        return 1
+    }
+
+    if [[ -n "${wallet_rpc_port:-}" ]]; then
+        master_wallet="$(get_wallet_rpc_address "$wallet_rpc_port" || true)"
+    fi
+
+    if [[ -z "$master_wallet" ]]; then
+        input_value \
+            'Pool Reward Address' \
+            'CryptoNote pool reward address (master_wallet)' \
+            '' \
+            master_wallet
+    else
+        print_success "Pool reward address detected from Wallet RPC"
+    fi
+
+    [[ -n "$master_wallet" ]] ||
+        fatal 'A CryptoNote pool reward address is required'
+
+    block_time_value=''
+    input_value \
+        'Block Time' \
+        'Expected block time in seconds' \
+        '120' \
+        block_time_value
+
+    [[ "$block_time_value" =~ ^[1-9][0-9]*$ ]] ||
+        fatal 'Block time must be a positive integer'
+
+    payout_decimals_value=''
+    input_value \
+        'Payout Decimals' \
+        'Coin decimal precision used for payouts' \
+        '12' \
+        payout_decimals_value
+
+    [[ "$payout_decimals_value" =~ ^[0-9]+$ ]] ||
+        fatal 'Payout decimals must be an integer'
+
+    (( payout_decimals_value >= 0 && payout_decimals_value <= 18 )) ||
+        fatal 'Payout decimals must be between 0 and 18'
+
+    q_name="$(sql_escape "$coin_name")"
+    q_symbol="$(sql_escape "$coin_symbol")"
+    q_wallet="$(sql_escape "$master_wallet")"
+    q_program="$(sql_escape "$(basename "$installed_daemon")")"
+    q_conf_folder="$(sql_escape "$datadir")"
+
+    if [[ -n "${stratum_port:-}" && "$stratum_port" =~ ^[0-9]+$ ]]; then
+        dedicated_port_sql="$stratum_port"
+    fi
+
+    if [[ -n "${wallet_rpc_port:-}" && "$wallet_rpc_port" =~ ^[0-9]+$ ]]; then
+        wallet_rpc_port_sql="$wallet_rpc_port"
+    fi
+
+    existing_id="$(
+        sudo "$mysql_client" \
+            --defaults-extra-file="$mysql_cnf" \
+            --defaults-group-suffix=mysql \
+            "$yiimp_db" \
+            -Nse "
+SELECT id
+FROM coins
+WHERE symbol='${q_symbol}'
+ORDER BY id
+LIMIT 1;
+" 2>/dev/null || true
+    )"
+
+    if [[ -n "$existing_id" ]]; then
+
+        print_status \
+            "Updating existing YiiMP coin ${coin_symbol} (id=${existing_id})..."
+
+        sudo "$mysql_client" \
+            --defaults-extra-file="$mysql_cnf" \
+            --defaults-group-suffix=mysql \
+            "$yiimp_db" <<EOF_SQL
+UPDATE coins
+SET
+    name='${q_name}',
+    symbol='${q_symbol}',
+    symbol2='${q_symbol}',
+    algo='randomx',
+    master_wallet='${q_wallet}',
+    block_time=${block_time_value},
+    payout_decimals=${payout_decimals_value},
+    rpcencoding='XMR',
+    rpchost='127.0.0.1',
+    rpcport=${rpc_port},
+    rpcuser='',
+    rpcpasswd='',
+    wallet_rpchost='127.0.0.1',
+    wallet_rpcport=${wallet_rpc_port_sql},
+    wallet_rpcuser='',
+    wallet_rpcpasswd='',
+    program='${q_program}',
+    conf_folder='${q_conf_folder}',
+    installed=1,
+    enable=0,
+    auto_ready=0,
+    visible=0,
+    dontsell=1,
+    dedicatedport=${dedicated_port_sql}
+WHERE id=${existing_id};
+EOF_SQL
+
+    else
+
+        print_status \
+            "Creating YiiMP coin record for ${coin_symbol}..."
+
+        sudo "$mysql_client" \
+            --defaults-extra-file="$mysql_cnf" \
+            --defaults-group-suffix=mysql \
+            "$yiimp_db" <<EOF_SQL
+INSERT INTO coins (
+    name,
+    symbol,
+    symbol2,
+    algo,
+    master_wallet,
+    block_time,
+    payout_decimals,
+    rpcencoding,
+    rpchost,
+    rpcport,
+    rpcuser,
+    rpcpasswd,
+    wallet_rpchost,
+    wallet_rpcport,
+    wallet_rpcuser,
+    wallet_rpcpasswd,
+    program,
+    conf_folder,
+    installed,
+    enable,
+    auto_ready,
+    visible,
+    dontsell,
+    dedicatedport
+) VALUES (
+    '${q_name}',
+    '${q_symbol}',
+    '${q_symbol}',
+    'randomx',
+    '${q_wallet}',
+    ${block_time_value},
+    ${payout_decimals_value},
+    'XMR',
+    '127.0.0.1',
+    ${rpc_port},
+    '',
+    '',
+    '127.0.0.1',
+    ${wallet_rpc_port_sql},
+    '',
+    '',
+    '${q_program}',
+    '${q_conf_folder}',
+    1,
+    0,
+    0,
+    0,
+    1,
+    ${dedicated_port_sql}
+);
+EOF_SQL
+    fi
+
+    print_success \
+        "YiiMP coin record configured for ${coin_symbol}"
+
+    print_warning \
+        'Coin remains disabled until the CryptoNote node is synchronized.'
+}
+
 check_binary_dependencies() {
     local binary="$1"
     local label="$2"
@@ -1099,6 +1392,18 @@ fi
 # DaemonBuilder metadata may have been rewritten by addport.
 # Re-save node/wallet RPC metadata while preserving the Stratum keys.
 save_node_metadata "$metadata_file"
+
+# ---------------------------------------------------------
+# YiiMP coin database configuration
+# ---------------------------------------------------------
+
+if confirm_yesno \
+    'YiiMP Coin Database' \
+    "Create or update the YiiMP coin record for ${coin_symbol}?"
+then
+    configure_yiimp_coin || \
+        print_warning 'YiiMP coin database configuration was not completed.'
+fi
 
 print_divider
 print_header 'RandomX / CryptoNote Installation Complete'

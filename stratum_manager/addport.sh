@@ -3219,22 +3219,32 @@ EOF_HELP
     # must really be free. If another process owns it, abort.
     #
     if ! free_stratum_port "${coinport}"; then
-        echo "ERROR: Cannot start Stratum because port ${coinport} is occupied"
+        echo "ERROR: Cannot configure Stratum because port ${coinport} is occupied"
         return 1 2>/dev/null || exit 1
     fi
 
-    print_info "Starting the new Stratum service..."
+    if [[ "${SQSYIIMP_STRATUM_DEFER_START:-false}" == "true" ]]; then
 
-    if "$SERVICE_COMMAND" start; then
-        print_success "Stratum service started"
+        print_info "Stratum automatic start has been deferred."
+        print_info "Configuration, launcher and metadata were created."
+        print_info "Start later with: $SERVICE_COMMAND start"
 
-        if register_autostart; then
-            print_success "Stratum autostart registered"
-        else
-            print_warning "Stratum started, but autostart could not be registered"
-        fi
     else
-        print_warning "Stratum service could not be started automatically; the config and service command were still created"
+
+        print_info "Starting the new Stratum service..."
+
+        if "$SERVICE_COMMAND" start; then
+            print_success "Stratum service started"
+
+            if register_autostart; then
+                print_success "Stratum autostart registered"
+            else
+                print_warning "Stratum started, but autostart could not be registered"
+            fi
+        else
+            print_warning "Stratum service could not be started automatically; the config and service command were still created"
+        fi
+
     fi
 
     save_managed_coin_metadata

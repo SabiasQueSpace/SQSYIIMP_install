@@ -653,6 +653,78 @@ fi
 metadata_file="$MANAGED_DIR/${coin_symbol,,}.conf"
 save_node_metadata "$metadata_file"
 
+# ---------------------------------------------------------
+# Dedicated RandomX Stratum configuration
+# ---------------------------------------------------------
+
+stratum_configured=0
+stratum_port=''
+stratum_binary=''
+stratum_config=''
+
+if command -v addport >/dev/null 2>&1; then
+
+    if confirm_yesno \
+        'RandomX Stratum' \
+        "Configure a dedicated RandomX Stratum for ${coin_symbol} now?"
+    then
+
+        print_status \
+            'Creating RandomX Stratum configuration. Automatic start will be deferred.'
+
+        rm -f "$STORAGE_ROOT/daemon_builder/.addport.cnf"
+
+        if SQSYIIMP_STRATUM_DEFER_START=true \
+            addport CREATECOIN "$coin_symbol" randomx
+        then
+            ADDPORTCONF="$STORAGE_ROOT/daemon_builder/.addport.cnf"
+
+            if [[ -r "$ADDPORTCONF" ]]; then
+                # shellcheck disable=SC1090
+                source "$ADDPORTCONF"
+
+                stratum_port="${COINPORT:-}"
+                stratum_binary="${STRATUMBINARY:-}"
+                stratum_config="${STRATUMCONFIG:-}"
+
+                stratum_configured=1
+
+                print_success \
+                    "RandomX Stratum configuration created for ${coin_symbol}"
+
+                [[ -z "$stratum_port" ]] ||
+                    print_info "Stratum port   : $stratum_port"
+
+                [[ -z "$stratum_binary" ]] ||
+                    print_info "Stratum binary : $stratum_binary"
+
+                [[ -z "$stratum_config" ]] ||
+                    print_info "Stratum config : $stratum_config"
+
+                print_info \
+                    "Stratum remains stopped until the CryptoNote node is synchronized."
+
+                print_info \
+                    "Start later: sudo /usr/bin/stratum.${coin_symbol,,} start"
+            else
+                print_warning \
+                    'addport completed but did not create .addport.cnf'
+            fi
+        else
+            print_warning \
+                'RandomX Stratum configuration was not completed.'
+        fi
+    fi
+
+else
+    print_warning \
+        'addport command is unavailable; RandomX Stratum configuration was skipped.'
+fi
+
+# DaemonBuilder metadata may have been rewritten by addport.
+# Re-save node/wallet RPC metadata while preserving the Stratum keys.
+save_node_metadata "$metadata_file"
+
 print_divider
 print_header 'RandomX / CryptoNote Installation Complete'
 print_success "$coin_name node/wallet installation is complete"
@@ -664,5 +736,14 @@ print_info "Daemon RPC  : http://127.0.0.1:$rpc_port"
 [[ -z "$wallet_file" ]] || print_info "Wallet file : $wallet_file"
 [[ -z "$wallet_password_file" ]] || print_info "Wallet password file : $wallet_password_file"
 [[ -z "$wallet_rpc_service_name" ]] || print_info "Wallet RPC status : sudo systemctl status $wallet_rpc_service_name --no-pager"
+
+if [[ "${stratum_configured:-0}" -eq 1 ]]; then
+    print_info "Stratum port   : ${stratum_port:-unknown}"
+    print_info "Stratum binary : ${stratum_binary:-unknown}"
+    print_info "Stratum status : sudo /usr/bin/stratum.${coin_symbol,,} status"
+    print_info "Stratum start  : sudo /usr/bin/stratum.${coin_symbol,,} start"
+    print_warning 'Leave Stratum stopped until the CryptoNote daemon is fully synchronized.'
+fi
+
 print_info 'Stratum source code remains independent and is not modified by this installer.'
 print_warning 'Verify the coin-specific YiiMP RPC/coin fields before enabling production payouts; CryptoNote coins are not Bitcoin-RPC compatible.'

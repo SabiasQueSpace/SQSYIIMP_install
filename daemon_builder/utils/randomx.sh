@@ -268,7 +268,8 @@ coin_id="${coin_id,,}"; valid_id "$coin_id" || fatal "Invalid coin identifier: $
 
 install_mode=''; choose_menu 'Node Binaries' 'Choose how to provide the CryptoNote binaries.' install_mode \
     local 'Use existing local daemon/wallet executables' \
-    download 'Download a precompiled Linux archive'
+    download 'Download a precompiled Linux archive' \
+    source 'Clone and compile a CryptoNote source repository'
 
 mkdir -p "$TMP_ROOT"; tmpdir="$(mktemp -d "$TMP_ROOT/randomx-${coin_id}.XXXXXX")"
 trap 'rm -rf "$tmpdir" 2>/dev/null || true' EXIT
@@ -288,53 +289,427 @@ default_wallet_path="/usr/bin/${wallet_name}"
 default_wallet_rpc_path="/usr/bin/${wallet_rpc_name}"
 
 
-if [[ "$install_mode" == local ]]; then
-    input_value 'Daemon Binary' "Absolute path to the CryptoNote daemon executable (suggested: ${default_daemon_path})" "$default_daemon_path" source_daemon
-    [[ -x "$source_daemon" ]] || fatal "Daemon executable not found: $source_daemon"
-    daemon_name="$(basename "$source_daemon")"
-    input_value 'Wallet CLI' "Absolute path to wallet CLI (suggested: ${default_wallet_path}); leave empty if unavailable" "$default_wallet_path" source_wallet
-    input_value 'Wallet RPC' "Absolute path to wallet RPC executable (suggested: ${default_wallet_rpc_path}); leave empty if unavailable" "$default_wallet_rpc_path" source_wallet_rpc
+case "$install_mode" in
 
-    [[ -z "$source_wallet" || -x "$source_wallet" ]] || fatal "Wallet CLI executable not found: $source_wallet"
-    [[ -z "$source_wallet_rpc" || -x "$source_wallet_rpc" ]] || fatal "Wallet RPC executable not found: $source_wallet_rpc"
+    local)
+        input_value \
+            'Daemon Binary' \
+            "Absolute path to the CryptoNote daemon executable (suggested: ${default_daemon_path})" \
+            "$default_daemon_path" \
+            source_daemon
 
-    [[ -z "$source_wallet" ]] || wallet_name="$(basename "$source_wallet")"
-    [[ -z "$source_wallet_rpc" ]] || wallet_rpc_name="$(basename "$source_wallet_rpc")"
-else
-    download_url=''; input_value 'Precompiled Package' 'Direct URL to a Linux archive containing the daemon and optionally wallet CLI' '' download_url
-    [[ "$download_url" =~ ^https?:// ]] || fatal 'A valid http/https URL is required'
-    input_value 'Daemon Name' "Daemon executable name inside archive (suggested from coin identifier)" "$daemon_name" daemon_name
-    input_value 'Wallet CLI Name' "Wallet CLI executable name inside archive (suggested from coin identifier); leave empty if unavailable" "$wallet_name" wallet_name
-    input_value 'Wallet RPC Name' "Wallet RPC executable name inside archive (suggested from coin identifier); leave empty if unavailable" "$wallet_rpc_name" wallet_rpc_name
-    download_file="$tmpdir/$(basename "${download_url%%\?*}")"; [[ -n "${download_file##*/}" ]] || download_file="$tmpdir/package"
-    print_status 'Downloading CryptoNote package...'; curl -fL --retry 3 --connect-timeout 15 "$download_url" -o "$download_file"
-    extract_dir="$tmpdir/extracted"; extract_download "$download_file" "$extract_dir"
-    source_daemon="$(find "$extract_dir" -type f -name "$daemon_name" -print -quit 2>/dev/null || true)"
-    [[ -n "$source_daemon" ]] || fatal "Could not find daemon '$daemon_name' in package"
-    chmod +x "$source_daemon"
-    if [[ -n "$wallet_name" ]]; then
-        source_wallet="$(find "$extract_dir" -type f -name "$wallet_name" -print -quit 2>/dev/null || true)"
+        [[ -x "$source_daemon" ]] ||
+            fatal "Daemon executable not found: $source_daemon"
 
-        if [[ -n "$source_wallet" ]]; then
-            chmod +x "$source_wallet"
-        else
-            print_warning "Wallet CLI '$wallet_name' was not extracted/found; continuing without wallet CLI"
-            wallet_name=''
+        daemon_name="$(basename "$source_daemon")"
+
+        input_value \
+            'Wallet CLI' \
+            "Absolute path to wallet CLI (suggested: ${default_wallet_path}); leave empty if unavailable" \
+            "$default_wallet_path" \
+            source_wallet
+
+        input_value \
+            'Wallet RPC' \
+            "Absolute path to wallet RPC executable (suggested: ${default_wallet_rpc_path}); leave empty if unavailable" \
+            "$default_wallet_rpc_path" \
+            source_wallet_rpc
+
+        [[ -z "$source_wallet" || -x "$source_wallet" ]] ||
+            fatal "Wallet CLI executable not found: $source_wallet"
+
+        [[ -z "$source_wallet_rpc" || -x "$source_wallet_rpc" ]] ||
+            fatal "Wallet RPC executable not found: $source_wallet_rpc"
+
+        [[ -z "$source_wallet" ]] ||
+            wallet_name="$(basename "$source_wallet")"
+
+        [[ -z "$source_wallet_rpc" ]] ||
+            wallet_rpc_name="$(basename "$source_wallet_rpc")"
+        ;;
+
+    download)
+        download_url=''
+        input_value \
+            'Precompiled Package' \
+            'Direct URL to a Linux archive containing the daemon and optionally wallet CLI' \
+            '' \
+            download_url
+
+        [[ "$download_url" =~ ^https?:// ]] ||
+            fatal 'A valid http/https URL is required'
+
+        input_value \
+            'Daemon Name' \
+            'Daemon executable name inside archive (suggested from coin identifier)' \
+            "$daemon_name" \
+            daemon_name
+
+        input_value \
+            'Wallet CLI Name' \
+            'Wallet CLI executable name inside archive (suggested from coin identifier); leave empty if unavailable' \
+            "$wallet_name" \
+            wallet_name
+
+        input_value \
+            'Wallet RPC Name' \
+            'Wallet RPC executable name inside archive (suggested from coin identifier); leave empty if unavailable' \
+            "$wallet_rpc_name" \
+            wallet_rpc_name
+
+        download_file="$tmpdir/$(basename "${download_url%%\?*}")"
+        [[ -n "${download_file##*/}" ]] ||
+            download_file="$tmpdir/package"
+
+        print_status 'Downloading CryptoNote package...'
+
+        curl \
+            -fL \
+            --retry 3 \
+            --connect-timeout 15 \
+            "$download_url" \
+            -o "$download_file"
+
+        extract_dir="$tmpdir/extracted"
+        extract_download "$download_file" "$extract_dir"
+
+        source_daemon="$(
+            find "$extract_dir" \
+                -type f \
+                -name "$daemon_name" \
+                -print -quit 2>/dev/null || true
+        )"
+
+        [[ -n "$source_daemon" ]] ||
+            fatal "Could not find daemon '$daemon_name' in package"
+
+        chmod +x "$source_daemon"
+
+        if [[ -n "$wallet_name" ]]; then
+            source_wallet="$(
+                find "$extract_dir" \
+                    -type f \
+                    -name "$wallet_name" \
+                    -print -quit 2>/dev/null || true
+            )"
+
+            if [[ -n "$source_wallet" ]]; then
+                chmod +x "$source_wallet"
+            else
+                print_warning \
+                    "Wallet CLI '$wallet_name' was not extracted/found; continuing without wallet CLI"
+                wallet_name=''
+            fi
         fi
-    fi
 
-    if [[ -n "$wallet_rpc_name" ]]; then
-        source_wallet_rpc="$(find "$extract_dir" -type f -name "$wallet_rpc_name" -print -quit 2>/dev/null || true)"
+        if [[ -n "$wallet_rpc_name" ]]; then
+            source_wallet_rpc="$(
+                find "$extract_dir" \
+                    -type f \
+                    -name "$wallet_rpc_name" \
+                    -print -quit 2>/dev/null || true
+            )"
 
-        if [[ -n "$source_wallet_rpc" ]]; then
-            chmod +x "$source_wallet_rpc"
-            print_success "Wallet RPC found: $wallet_rpc_name"
-        else
-            print_warning "Wallet RPC '$wallet_rpc_name' was not extracted/found"
-            wallet_rpc_name=''
+            if [[ -n "$source_wallet_rpc" ]]; then
+                chmod +x "$source_wallet_rpc"
+                print_success "Wallet RPC found: $wallet_rpc_name"
+            else
+                print_warning \
+                    "Wallet RPC '$wallet_rpc_name' was not extracted/found"
+                wallet_rpc_name=''
+            fi
         fi
-    fi
-fi
+        ;;
+
+    source)
+        need_cmd git
+
+        source_repo=''
+        source_ref=''
+        source_build_system=''
+        source_build_jobs='2'
+        source_cc=''
+        source_cxx=''
+        source_build_dir_name='build'
+        source_extra_args=''
+
+        input_value \
+            'Source Repository' \
+            'Git repository URL containing the CryptoNote node source code' \
+            '' \
+            source_repo
+
+        [[ "$source_repo" =~ ^(https?|git|ssh):// ]] ||
+        [[ "$source_repo" =~ ^git@[^:]+:.+ ]] ||
+            fatal 'A valid Git repository URL is required'
+
+        input_value \
+            'Source Revision' \
+            'Optional branch, tag or commit. Leave empty to use repository default HEAD.' \
+            '' \
+            source_ref
+
+        input_value \
+            'Daemon Name' \
+            'Daemon executable name expected after compilation' \
+            "$daemon_name" \
+            daemon_name
+
+        input_value \
+            'Wallet CLI Name' \
+            'Wallet CLI executable name expected after compilation; leave empty if unavailable' \
+            "$wallet_name" \
+            wallet_name
+
+        input_value \
+            'Wallet RPC Name' \
+            'Wallet RPC executable name expected after compilation; leave empty if unavailable' \
+            "$wallet_rpc_name" \
+            wallet_rpc_name
+
+        choose_menu \
+            'Build System' \
+            'Choose the source build system used by this CryptoNote repository.' \
+            source_build_system \
+            cmake 'CMake out-of-tree Release build' \
+            make 'GNU Make build in repository root'
+
+        input_value \
+            'Build Jobs' \
+            'Parallel compilation jobs. Low values reduce memory pressure.' \
+            '2' \
+            source_build_jobs
+
+        [[ "$source_build_jobs" =~ ^[1-9][0-9]*$ ]] ||
+            fatal 'Build jobs must be a positive integer'
+
+        input_value \
+            'C Compiler' \
+            'Optional C compiler executable/path (example: gcc-9). Leave empty for system default.' \
+            '' \
+            source_cc
+
+        input_value \
+            'C++ Compiler' \
+            'Optional C++ compiler executable/path (example: g++-9). Leave empty for system default.' \
+            '' \
+            source_cxx
+
+        source_dir="$tmpdir/source"
+
+        print_status "Cloning CryptoNote source repository..."
+
+        git clone \
+            --recursive \
+            "$source_repo" \
+            "$source_dir"
+
+        if [[ -n "$source_ref" ]]; then
+            print_status "Checking out source revision: $source_ref"
+
+            git -C "$source_dir" checkout "$source_ref"
+
+            git -C "$source_dir" \
+                submodule update \
+                --init \
+                --recursive
+        fi
+
+        case "$source_build_system" in
+
+            cmake)
+                need_cmd cmake
+
+                input_value \
+                    'CMake Build Directory' \
+                    'Build directory name inside the temporary source tree' \
+                    "$source_build_dir_name" \
+                    source_build_dir_name
+
+                [[ "$source_build_dir_name" =~ ^[A-Za-z0-9._-]+$ ]] ||
+                    fatal 'Invalid CMake build directory name'
+
+                input_value \
+                    'Additional CMake Arguments' \
+                    'Optional extra CMake arguments. Leave empty for standard Release build.' \
+                    '' \
+                    source_extra_args
+
+                declare -a cmake_args=(
+                    -S "$source_dir"
+                    -B "$source_dir/$source_build_dir_name"
+                    -DCMAKE_BUILD_TYPE=Release
+                )
+
+                if [[ -n "${source_extra_args// }" ]]; then
+                    mapfile -t parsed_cmake_args < <(
+                        parse_shell_words "$source_extra_args"
+                    )
+                    cmake_args+=("${parsed_cmake_args[@]}")
+                fi
+
+                print_status \
+                    "Configuring CryptoNote source with CMake..."
+
+                if [[ -n "$source_cc" || -n "$source_cxx" ]]; then
+                    env_args=()
+
+                    [[ -z "$source_cc" ]] ||
+                        env_args+=("CC=$source_cc")
+
+                    [[ -z "$source_cxx" ]] ||
+                        env_args+=("CXX=$source_cxx")
+
+                    env "${env_args[@]}" \
+                        cmake "${cmake_args[@]}"
+                else
+                    cmake "${cmake_args[@]}"
+                fi
+
+                print_status \
+                    "Building CryptoNote source with ${source_build_jobs} parallel job(s)..."
+
+                cmake \
+                    --build "$source_dir/$source_build_dir_name" \
+                    --parallel "$source_build_jobs"
+                ;;
+
+            make)
+                need_cmd make
+
+                input_value \
+                    'Additional Make Arguments' \
+                    'Optional extra Make arguments. Leave empty for the repository default target.' \
+                    '' \
+                    source_extra_args
+
+                declare -a make_args=()
+
+                if [[ -n "${source_extra_args// }" ]]; then
+                    mapfile -t make_args < <(
+                        parse_shell_words "$source_extra_args"
+                    )
+                fi
+
+                print_status \
+                    "Building CryptoNote source with ${source_build_jobs} parallel job(s)..."
+
+                if [[ -n "$source_cc" || -n "$source_cxx" ]]; then
+                    env_args=()
+
+                    [[ -z "$source_cc" ]] ||
+                        env_args+=("CC=$source_cc")
+
+                    [[ -z "$source_cxx" ]] ||
+                        env_args+=("CXX=$source_cxx")
+
+                    env "${env_args[@]}" \
+                        make \
+                        -C "$source_dir" \
+                        -j"$source_build_jobs" \
+                        "${make_args[@]}"
+                else
+                    make \
+                        -C "$source_dir" \
+                        -j"$source_build_jobs" \
+                        "${make_args[@]}"
+                fi
+                ;;
+
+            *)
+                fatal "Unsupported source build system: $source_build_system"
+                ;;
+        esac
+
+        source_daemon="$(
+            find "$source_dir" \
+                -type f \
+                -name "$daemon_name" \
+                -perm -u+x \
+                -print -quit 2>/dev/null || true
+        )"
+
+        if [[ -z "$source_daemon" ]]; then
+            source_daemon="$(
+                find "$source_dir" \
+                    -type f \
+                    -name "$daemon_name" \
+                    -print -quit 2>/dev/null || true
+            )"
+        fi
+
+        [[ -n "$source_daemon" && -f "$source_daemon" ]] ||
+            fatal \
+                "Compiled daemon '$daemon_name' was not found in source tree"
+
+        chmod +x "$source_daemon"
+
+        if [[ -n "$wallet_name" ]]; then
+            source_wallet="$(
+                find "$source_dir" \
+                    -type f \
+                    -name "$wallet_name" \
+                    -perm -u+x \
+                    -print -quit 2>/dev/null || true
+            )"
+
+            if [[ -z "$source_wallet" ]]; then
+                source_wallet="$(
+                    find "$source_dir" \
+                        -type f \
+                        -name "$wallet_name" \
+                        -print -quit 2>/dev/null || true
+                )"
+            fi
+
+            if [[ -n "$source_wallet" ]]; then
+                chmod +x "$source_wallet"
+                print_success \
+                    "Compiled Wallet CLI found: $source_wallet"
+            else
+                print_warning \
+                    "Compiled Wallet CLI '$wallet_name' was not found"
+                wallet_name=''
+            fi
+        fi
+
+        if [[ -n "$wallet_rpc_name" ]]; then
+            source_wallet_rpc="$(
+                find "$source_dir" \
+                    -type f \
+                    -name "$wallet_rpc_name" \
+                    -perm -u+x \
+                    -print -quit 2>/dev/null || true
+            )"
+
+            if [[ -z "$source_wallet_rpc" ]]; then
+                source_wallet_rpc="$(
+                    find "$source_dir" \
+                        -type f \
+                        -name "$wallet_rpc_name" \
+                        -print -quit 2>/dev/null || true
+                )"
+            fi
+
+            if [[ -n "$source_wallet_rpc" ]]; then
+                chmod +x "$source_wallet_rpc"
+                print_success \
+                    "Compiled Wallet RPC found: $source_wallet_rpc"
+            else
+                print_warning \
+                    "Compiled Wallet RPC '$wallet_rpc_name' was not found"
+                wallet_rpc_name=''
+            fi
+        fi
+
+        print_success \
+            "CryptoNote source compilation completed"
+        ;;
+
+    *)
+        fatal "Unsupported installation mode: $install_mode"
+        ;;
+esac
 
 installed_daemon="/usr/bin/${coin_id}d"
 installed_wallet=''

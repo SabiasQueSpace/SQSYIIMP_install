@@ -824,12 +824,14 @@ configure_yiimp_coin() {
     local yiimp_db=""
     local master_wallet=""
     local existing_id=""
+    local existing_count="0"
     local q_name=""
     local q_symbol=""
     local q_wallet=""
     local q_program=""
     local q_conf_folder=""
     local dedicated_port_sql="NULL"
+    local wallet_rpc_host_sql="NULL"
     local wallet_rpc_port_sql="NULL"
 
     if ! sudo test -r "$mysql_cnf"; then
@@ -901,22 +903,52 @@ configure_yiimp_coin() {
     fi
 
     if [[ -n "${wallet_rpc_port:-}" && "$wallet_rpc_port" =~ ^[0-9]+$ ]]; then
+        wallet_rpc_host_sql="'127.0.0.1'"
         wallet_rpc_port_sql="$wallet_rpc_port"
     fi
 
-    existing_id="$(
+    existing_count="$(
         sudo "$mysql_client" \
             --defaults-extra-file="$mysql_cnf" \
             --defaults-group-suffix=mysql \
             "$yiimp_db" \
             -Nse "
+SELECT COUNT(*)
+FROM coins
+WHERE symbol='${q_symbol}';
+" 2>/dev/null || true
+    )"
+
+    [[ "$existing_count" =~ ^[0-9]+$ ]] || {
+        print_warning "Could not verify existing YiiMP coin records for ${coin_symbol}"
+        return 1
+    }
+
+    if (( existing_count > 1 )); then
+        print_warning \
+            "Multiple YiiMP coin records already use symbol ${coin_symbol}; refusing automatic update."
+        return 1
+    fi
+
+    if (( existing_count == 1 )); then
+        existing_id="$(
+            sudo "$mysql_client" \
+                --defaults-extra-file="$mysql_cnf" \
+                --defaults-group-suffix=mysql \
+                "$yiimp_db" \
+                -Nse "
 SELECT id
 FROM coins
 WHERE symbol='${q_symbol}'
-ORDER BY id
 LIMIT 1;
 " 2>/dev/null || true
-    )"
+        )"
+
+        [[ "$existing_id" =~ ^[0-9]+$ ]] || {
+            print_warning "Could not resolve YiiMP coin id for ${coin_symbol}"
+            return 1
+        }
+    fi
 
     if [[ -n "$existing_id" ]]; then
 
@@ -941,8 +973,8 @@ SET
     rpcport=${rpc_port},
     rpcuser='',
     rpcpasswd='',
-    wallet_rpchost='127.0.0.1',
-    wallet_rpcport=${wallet_rpc_port_sql},
+    wallet_rpchost=COALESCE(${wallet_rpc_host_sql}, wallet_rpchost),
+    wallet_rpcport=COALESCE(${wallet_rpc_port_sql}, wallet_rpcport),
     wallet_rpcuser='',
     wallet_rpcpasswd='',
     program='${q_program}',
@@ -952,7 +984,7 @@ SET
     auto_ready=0,
     visible=0,
     dontsell=1,
-    dedicatedport=${dedicated_port_sql}
+    dedicatedport=COALESCE(${dedicated_port_sql}, dedicatedport)
 WHERE id=${existing_id};
 EOF_SQL
 
@@ -1003,7 +1035,7 @@ INSERT INTO coins (
     ${rpc_port},
     '',
     '',
-    '127.0.0.1',
+    ${wallet_rpc_host_sql},
     ${wallet_rpc_port_sql},
     '',
     '',

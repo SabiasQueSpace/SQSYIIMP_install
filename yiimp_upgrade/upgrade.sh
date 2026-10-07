@@ -26,7 +26,7 @@ fi
 
 
 apply_quantus_database_migration() {
-    local storage_root="${STORAGE_ROOT:-/home/crypto-data}"
+    local storage_root="${STORAGE_ROOT:?STORAGE_ROOT is not configured}"
     local yiimp_conf="$storage_root/yiimp/.yiimp.conf"
     local migration="$HOME/sqsyiimp/yiimp_single/yiimp_confs/2026-09-24-add-quantus.sql"
 
@@ -69,6 +69,83 @@ apply_quantus_database_migration() {
     log_message "$GREEN" "Quantus QPoW database migration applied successfully."
     return 0
 }
+
+
+apply_cryptonote_database_migration() {
+    local storage_root="${STORAGE_ROOT:?STORAGE_ROOT is not configured}"
+    local yiimp_conf="$storage_root/yiimp/.yiimp.conf"
+    local migration="$HOME/sqsyiimp/yiimp_single/yiimp_confs/2026-10-06-add-cryptonote-wallet-rpc.sql"
+
+    if [[ ! -r "$yiimp_conf" ]]; then
+        log_message "$RED" "YiiMP database configuration not found: $yiimp_conf"
+        return 1
+    fi
+
+    # shellcheck disable=SC1090
+    source "$yiimp_conf"
+
+    if [[ -z "${YiiMPDBName:-}" ]]; then
+        log_message "$RED" "YiiMPDBName is not defined in $yiimp_conf"
+        return 1
+    fi
+
+    if [[ -z "${DBRootPassword:-}" ]]; then
+        log_message "$RED" "DBRootPassword is not defined in $yiimp_conf"
+        return 1
+    fi
+
+    if [[ ! -f "$migration" ]]; then
+        log_message "$RED" "CryptoNote Wallet RPC migration not found: $migration"
+        return 1
+    fi
+
+    log_message "$YELLOW" "Applying CryptoNote/XMR Wallet RPC database migration..."
+
+    if ! sudo mariadb \
+        -u root \
+        -p"${DBRootPassword}" \
+        "${YiiMPDBName}" \
+        < "$migration"
+    then
+        log_message "$RED" "CryptoNote/XMR Wallet RPC database migration failed."
+        return 1
+    fi
+
+    log_message "$GREEN" "CryptoNote/XMR Wallet RPC database migration applied successfully."
+    return 0
+}
+
+
+apply_cryptonote_php_patch() {
+    local storage_root="${STORAGE_ROOT:?STORAGE_ROOT is not configured}"
+    local site="$storage_root/yiimp/site"
+    local patch="$HOME/sqsyiimp/yiimp_single/php_patches/cryptonote_rpc.py"
+    local runtime_user="${STORAGE_USER:?STORAGE_USER is not configured}"
+
+    if [[ ! -f "$patch" ]]; then
+        log_message "$RED" "CryptoNote PHP patch not found: $patch"
+        return 1
+    fi
+
+    if [[ ! -d "$site/web/yaamp/core/rpc" ]]; then
+        log_message "$RED" "YiiMP RPC directory not found: $site/web/yaamp/core/rpc"
+        return 1
+    fi
+
+    log_message "$YELLOW" "Applying CryptoNote/XMR PHP RPC integration..."
+
+    if ! sudo -u "$runtime_user" \
+        python3 "$patch" \
+        --site "$site"
+    then
+        log_message "$RED" "CryptoNote/XMR PHP RPC integration failed."
+        return 1
+    fi
+
+    log_message "$GREEN" "CryptoNote/XMR PHP RPC integration applied successfully."
+    return 0
+}
+
 
 
 main() {
@@ -190,6 +267,18 @@ main() {
             if ! apply_quantus_database_migration; then
                 log_message "$RED" "Database migration failed."
                 log_message "$YELLOW" "The migration is idempotent and can be safely retried."
+                exit 1
+            fi
+
+            if ! apply_cryptonote_database_migration; then
+                log_message "$RED" "CryptoNote database migration failed."
+                log_message "$YELLOW" "The migration is idempotent and can be safely retried."
+                exit 1
+            fi
+
+            if ! apply_cryptonote_php_patch; then
+                log_message "$RED" "CryptoNote PHP RPC integration failed."
+                log_message "$YELLOW" "The PHP patch is idempotent and can be safely retried."
                 exit 1
             fi
 

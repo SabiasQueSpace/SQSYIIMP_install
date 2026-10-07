@@ -176,6 +176,28 @@ sudo find $STORAGE_ROOT/yiimp/site/web/yaamp/core/exchange/ -type f -name "*.php
 print_status "Updating trading configuration paths..."
 sudo find $STORAGE_ROOT/yiimp/site/web/yaamp/core/trading/ -type f -name "*.php" -exec sed -i 's|require_once.*keys.php.*|if (!defined('\''EXCH_POLONIEX_KEY'\'')) {\n    require_once('\''/etc/yiimp/keys.php'\'');\n}|g' {} +
 
+# ------------------------------------------------------------
+# SQSYIIMP CryptoNote/XMR PHP RPC integration
+# ------------------------------------------------------------
+
+CRYPTONOTE_RPC_PATCH="$HOME/sqsyiimp/yiimp_single/php_patches/cryptonote_rpc.py"
+
+if [[ -f "$CRYPTONOTE_RPC_PATCH" ]]; then
+    print_status "Applying CryptoNote/XMR PHP RPC integration..."
+
+    if sudo -u "$STORAGE_USER" \
+        python3 "$CRYPTONOTE_RPC_PATCH" \
+        --site "$STORAGE_ROOT/yiimp/site"
+    then
+        print_success "CryptoNote/XMR PHP RPC integration applied"
+    else
+        print_error "CryptoNote/XMR PHP RPC integration failed"
+        exit 1
+    fi
+else
+    print_warning "CryptoNote PHP patch not found: $CRYPTONOTE_RPC_PATCH"
+fi
+
 print_success "YiiMP web configuration completed successfully"
 
 print_header "Configuration Summary"

@@ -182,6 +182,27 @@ else
 fi
 
 # ------------------------------------------------------------
+# SQSYIIMP CryptoNote/XMR separate Wallet RPC integration
+# ------------------------------------------------------------
+
+CRYPTONOTE_WALLET_RPC_SQL="$HOME/sqsyiimp/yiimp_single/yiimp_confs/2026-10-06-add-cryptonote-wallet-rpc.sql"
+
+if [[ -f "$CRYPTONOTE_WALLET_RPC_SQL" ]]; then
+    print_status "Applying CryptoNote/XMR Wallet RPC database integration..."
+    print_info "Processing CryptoNote migration '$CRYPTONOTE_WALLET_RPC_SQL'"
+
+    sudo mariadb \
+        -u root \
+        -p"${DBRootPassword}" \
+        "${YiiMPDBName}" \
+        < "$CRYPTONOTE_WALLET_RPC_SQL"
+
+    print_success "CryptoNote/XMR Wallet RPC database integration applied"
+else
+    print_warning "CryptoNote Wallet RPC SQL migration not found: $CRYPTONOTE_WALLET_RPC_SQL"
+fi
+
+# ------------------------------------------------------------
 # SQSYIIMP Quantus QPoW / Poseidon2 database integration
 # ------------------------------------------------------------
 

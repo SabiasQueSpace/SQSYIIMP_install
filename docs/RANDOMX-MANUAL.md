@@ -39,12 +39,37 @@ Choose:
 
 The wizard supports:
 
-- an existing local daemon/wallet executable, or
+- existing local daemon/wallet executables;
 - a precompiled Linux archive URL;
-- dedicated daemon RPC and P2P ports;
+- cloning and compiling a CryptoNote source repository;
+- an **external CryptoNote daemon with the wallet and Wallet RPC kept locally**;
+- dedicated daemon RPC and P2P ports for local-node mode;
 - optional local encrypted wallet creation;
-- a systemd node service;
+- a systemd node service for local-node mode;
+- a local Wallet RPC systemd service;
 - managed metadata for later administration/removal.
+
+### External daemon + local wallet
+
+Choose `Use an external daemon + local wallet executables` when the blockchain
+must not be stored on the YiiMP server. SQSYIIMP will:
+
+- verify the remote daemon with `get_info`;
+- avoid installing or creating a local daemon service;
+- keep the wallet CLI, encrypted wallet file and Wallet RPC on the pool server;
+- use wallet executables already installed locally or download a precompiled
+  archive and install only the wallet CLI/Wallet RPC binaries;
+- connect Wallet RPC to the external daemon with `--daemon-address`;
+- store `NODE_MODE=remote`, the remote RPC host/port/URL and local Wallet RPC
+  details in the managed metadata file;
+- configure YiiMP `rpchost`/`rpcport` to use the external daemon;
+- verify `get_block_template` using the pool reward address before completing
+  the automatic YiiMP coin configuration.
+
+The external RPC must be trusted and suitable for mining. A restricted public
+RPC that answers `get_info` but blocks `get_block_template` is not sufficient.
+This first remote-node implementation expects an HTTP daemon endpoint without
+RPC authentication.
 
 The wizard does not require or install a Stratum binary.
 

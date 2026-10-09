@@ -173,9 +173,10 @@ write_wallet_rpc_service() {
     local file="$1"
     local wallet_runner="$2"
     local desc="$3"
-    local daemon_service="$4"
+    local daemon_service="${4:-}"
 
-    sudo tee "$file" >/dev/null <<EOF_SERVICE
+    if [[ -n "$daemon_service" ]]; then
+        sudo tee "$file" >/dev/null <<EOF_SERVICE
 [Unit]
 Description=$desc
 After=network-online.target $daemon_service
@@ -195,9 +196,119 @@ LimitNOFILE=65535
 [Install]
 WantedBy=multi-user.target
 EOF_SERVICE
+    else
+        sudo tee "$file" >/dev/null <<EOF_SERVICE
+[Unit]
+Description=$desc
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$STORAGE_USER
+Group=$STORAGE_GROUP
+ExecStart=$wallet_runner
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=180
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+EOF_SERVICE
+    fi
 
     sudo chmod 0644 "$file"
     sudo systemctl daemon-reload
+}
+
+check_remote_daemon_rpc() {
+    local url="$1"
+    local response=""
+    local ok=""
+
+    response="$(
+        curl -fsS \
+            --connect-timeout 10 \
+            --max-time 20 \
+            -H 'Content-Type: application/json' \
+            -d '{"jsonrpc":"2.0","id":"sqsyiimp","method":"get_info"}' \
+            "${url%/}/json_rpc" 2>/dev/null || true
+    )"
+
+    [[ -n "$response" ]] || return 1
+
+    ok="$(printf '%s' "$response" | python3 -c '
+import json, sys
+try:
+    obj=json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+r=obj.get("result") or {}
+if obj.get("error"):
+    raise SystemExit(1)
+height=r.get("height")
+if height is None:
+    raise SystemExit(1)
+if r.get("synchronized") is False:
+    raise SystemExit(1)
+target=r.get("target_height") or 0
+try:
+    if target and int(height) + 2 < int(target):
+        raise SystemExit(1)
+except (TypeError, ValueError):
+    pass
+print("1")
+' 2>/dev/null || true)"
+
+    [[ "$ok" == 1 ]]
+}
+
+check_remote_block_template() {
+    local url="$1"
+    local address="$2"
+    local response=""
+    local ok=""
+
+    [[ -n "$address" ]] || return 1
+
+    response="$(
+        python3 - "$address" <<'PY_JSON' |
+import json, sys
+print(json.dumps({
+    "jsonrpc":"2.0",
+    "id":"sqsyiimp",
+    "method":"get_block_template",
+    "params":{"wallet_address":sys.argv[1],"reserve_size":8}
+}))
+PY_JSON
+        curl -fsS \
+            --connect-timeout 10 \
+            --max-time 30 \
+            -H 'Content-Type: application/json' \
+            --data-binary @- \
+            "${url%/}/json_rpc" 2>/dev/null || true
+    )"
+
+    [[ -n "$response" ]] || return 1
+
+    ok="$(printf '%s' "$response" | python3 -c '
+import json, sys
+try:
+    obj=json.load(sys.stdin)
+except Exception:
+    raise SystemExit(1)
+r=obj.get("result") or {}
+if obj.get("error"):
+    raise SystemExit(1)
+if not r.get("blocktemplate_blob"):
+    raise SystemExit(1)
+if r.get("height") is None:
+    raise SystemExit(1)
+print("1")
+' 2>/dev/null || true)"
+
+    [[ "$ok" == 1 ]]
 }
 
 save_node_metadata() {
@@ -213,12 +324,13 @@ WALLET_SYMBOL=$coin_symbol
 ID=$coin_id
 EOF_BASE
     fi
-    grep -Ev '^(NODE_TYPE|COIN_NAME|DAEMON_BINARY|CLI_BINARY|TX_BINARY|UTIL_BINARY|HASH_BINARY|WALLET_BINARY|QT_BINARY|DAEMON_DATADIR|DAEMON_CONF|DAEMON_BOOT_LOG|DAEMON_SERVICE|DAEMON_SERVICE_FILE|DAEMON_RUNNER|DAEMON_RPC_PORT|DAEMON_RPC_URL|DAEMON_P2P_PORT|RPC_HELPER_BINARY|POOL_WALLET_FILE|POOL_WALLET_PASSWORD_FILE|WALLET_RPC_BINARY|WALLET_RPC_PORT|WALLET_RPC_URL|WALLET_RPC_SERVICE|WALLET_RPC_SERVICE_FILE|WALLET_RPC_RUNNER)=' "$tmp" > "${tmp}.clean" || true
+    grep -Ev '^(NODE_TYPE|NODE_MODE|COIN_NAME|DAEMON_BINARY|CLI_BINARY|TX_BINARY|UTIL_BINARY|HASH_BINARY|WALLET_BINARY|QT_BINARY|DAEMON_DATADIR|DAEMON_CONF|DAEMON_BOOT_LOG|DAEMON_SERVICE|DAEMON_SERVICE_FILE|DAEMON_RUNNER|DAEMON_RPC_SCHEME|DAEMON_RPC_HOST|DAEMON_RPC_PORT|DAEMON_RPC_URL|DAEMON_P2P_PORT|RPC_HELPER_BINARY|POOL_WALLET_FILE|POOL_WALLET_PASSWORD_FILE|WALLET_RPC_BINARY|WALLET_RPC_PORT|WALLET_RPC_URL|WALLET_RPC_SERVICE|WALLET_RPC_SERVICE_FILE|WALLET_RPC_RUNNER)=' "$tmp" > "${tmp}.clean" || true
     mv "${tmp}.clean" "$tmp"
     cat >> "$tmp" <<EOF_NODE
 NODE_TYPE=cryptonote
+NODE_MODE=${node_mode:-local}
 COIN_NAME=$coin_id
-DAEMON_BINARY=$(basename "$installed_daemon")
+DAEMON_BINARY=${installed_daemon:+$(basename "$installed_daemon")}
 CLI_BINARY=
 TX_BINARY=
 UTIL_BINARY=
@@ -231,9 +343,11 @@ DAEMON_BOOT_LOG=
 DAEMON_SERVICE=$service_name
 DAEMON_SERVICE_FILE=$service_file
 DAEMON_RUNNER=$runner
+DAEMON_RPC_SCHEME=${daemon_rpc_scheme:-http}
+DAEMON_RPC_HOST=${daemon_rpc_host:-127.0.0.1}
 DAEMON_RPC_PORT=$rpc_port
-DAEMON_RPC_URL=http://127.0.0.1:$rpc_port
-DAEMON_P2P_PORT=$p2p_port
+DAEMON_RPC_URL=${daemon_rpc_url:-http://127.0.0.1:$rpc_port}
+DAEMON_P2P_PORT=${p2p_port:-}
 RPC_HELPER_BINARY=
 POOL_WALLET_FILE=${wallet_file:-}
 POOL_WALLET_PASSWORD_FILE=${wallet_password_file:-}
@@ -269,7 +383,15 @@ coin_id="${coin_id,,}"; valid_id "$coin_id" || fatal "Invalid coin identifier: $
 install_mode=''; choose_menu 'Node Binaries' 'Choose how to provide the CryptoNote binaries.' install_mode \
     local 'Use existing local daemon/wallet executables' \
     download 'Download a precompiled Linux archive' \
-    source 'Clone and compile a CryptoNote source repository'
+    source 'Clone and compile a CryptoNote source repository' \
+    remote 'Use an external daemon + local wallet executables'
+
+node_mode='local'
+daemon_rpc_scheme='http'
+daemon_rpc_host='127.0.0.1'
+daemon_rpc_url=''
+remote_daemon_address=''
+remote_daemon_ok=0
 
 mkdir -p "$TMP_ROOT"; tmpdir="$(mktemp -d "$TMP_ROOT/randomx-${coin_id}.XXXXXX")"
 trap 'rm -rf "$tmpdir" 2>/dev/null || true' EXIT
@@ -706,28 +828,175 @@ case "$install_mode" in
             "CryptoNote source compilation completed"
         ;;
 
+    remote)
+        node_mode='remote'
+
+        input_value \
+            'Remote Daemon Host' \
+            'Hostname or IP address of the external CryptoNote daemon' \
+            '' \
+            daemon_rpc_host
+
+        [[ -n "${daemon_rpc_host// }" ]] ||
+            fatal 'Remote daemon host cannot be empty'
+
+        input_value \
+            'Remote Daemon RPC Port' \
+            'RPC port exposed by the external CryptoNote daemon' \
+            '18081' \
+            rpc_port
+
+        valid_port "$rpc_port" || fatal 'Invalid remote daemon RPC port'
+
+        daemon_rpc_url="http://${daemon_rpc_host}:${rpc_port}"
+        remote_daemon_address="${daemon_rpc_host}:${rpc_port}"
+
+        print_status "Testing external daemon RPC: ${daemon_rpc_url}"
+
+        if check_remote_daemon_rpc "$daemon_rpc_url"; then
+            remote_daemon_ok=1
+            print_success 'External CryptoNote daemon responded to get_info'
+        else
+            fatal "External daemon RPC did not answer correctly: ${daemon_rpc_url}/json_rpc"
+        fi
+
+        remote_wallet_mode=''
+        choose_menu \
+            'Local Wallet Binaries' \
+            'Choose how to provide the local wallet CLI and Wallet RPC binaries.' \
+            remote_wallet_mode \
+            local 'Use existing local wallet executables' \
+            download 'Download a precompiled archive and install only wallet binaries'
+
+        case "$remote_wallet_mode" in
+            local)
+                input_value \
+                    'Wallet CLI' \
+                    "Absolute path to LOCAL wallet CLI (suggested: ${default_wallet_path})" \
+                    "$default_wallet_path" \
+                    source_wallet
+
+                input_value \
+                    'Wallet RPC' \
+                    "Absolute path to LOCAL wallet RPC executable (suggested: ${default_wallet_rpc_path})" \
+                    "$default_wallet_rpc_path" \
+                    source_wallet_rpc
+
+                [[ -x "$source_wallet" ]] ||
+                    fatal "Local wallet CLI executable not found: $source_wallet"
+
+                [[ -x "$source_wallet_rpc" ]] ||
+                    fatal "Local wallet RPC executable not found: $source_wallet_rpc"
+                ;;
+
+            download)
+                remote_wallet_url=''
+
+                input_value \
+                    'Wallet Package' \
+                    'Direct URL to a Linux archive containing wallet CLI and Wallet RPC' \
+                    '' \
+                    remote_wallet_url
+
+                [[ "$remote_wallet_url" =~ ^https?:// ]] ||
+                    fatal 'A valid http/https wallet package URL is required'
+
+                input_value \
+                    'Wallet CLI Name' \
+                    'Wallet CLI executable name inside archive' \
+                    "$wallet_name" \
+                    wallet_name
+
+                input_value \
+                    'Wallet RPC Name' \
+                    'Wallet RPC executable name inside archive' \
+                    "$wallet_rpc_name" \
+                    wallet_rpc_name
+
+                remote_wallet_file="$tmpdir/$(basename "${remote_wallet_url%%\?*}")"
+                [[ -n "${remote_wallet_file##*/}" ]] ||
+                    remote_wallet_file="$tmpdir/wallet-package"
+
+                print_status 'Downloading local wallet package...'
+
+                curl \
+                    -fL \
+                    --retry 3 \
+                    --connect-timeout 15 \
+                    "$remote_wallet_url" \
+                    -o "$remote_wallet_file"
+
+                remote_wallet_extract="$tmpdir/wallet-extracted"
+                extract_download "$remote_wallet_file" "$remote_wallet_extract"
+
+                source_wallet="$(
+                    find "$remote_wallet_extract" \
+                        -type f \
+                        -name "$wallet_name" \
+                        -print -quit 2>/dev/null || true
+                )"
+
+                source_wallet_rpc="$(
+                    find "$remote_wallet_extract" \
+                        -type f \
+                        -name "$wallet_rpc_name" \
+                        -print -quit 2>/dev/null || true
+                )"
+
+                [[ -n "$source_wallet" && -f "$source_wallet" ]] ||
+                    fatal "Wallet CLI '$wallet_name' was not found in package"
+
+                [[ -n "$source_wallet_rpc" && -f "$source_wallet_rpc" ]] ||
+                    fatal "Wallet RPC '$wallet_rpc_name' was not found in package"
+
+                chmod +x "$source_wallet" "$source_wallet_rpc"
+                ;;
+
+            *)
+                fatal "Unsupported remote wallet mode: $remote_wallet_mode"
+                ;;
+        esac
+
+        wallet_name="$(basename "$source_wallet")"
+        wallet_rpc_name="$(basename "$source_wallet_rpc")"
+        source_daemon=''
+        ;;
+
     *)
         fatal "Unsupported installation mode: $install_mode"
         ;;
 esac
 
-installed_daemon="/usr/bin/${coin_id}d"
+installed_daemon=''
 installed_wallet=''
 installed_wallet_rpc=''
 
-print_status "Installing daemon as $installed_daemon..."
-sudo install -o root -g root -m 0755 "$source_daemon" "$installed_daemon"
+if [[ "$node_mode" != remote ]]; then
+    installed_daemon="/usr/bin/${coin_id}d"
+    print_status "Installing daemon as $installed_daemon..."
+    sudo install -o root -g root -m 0755 "$source_daemon" "$installed_daemon"
+else
+    print_info "External daemon mode: no local daemon binary will be installed"
+fi
 
 if [[ -n "$source_wallet" ]]; then
     installed_wallet="/usr/bin/${coin_id}-wallet-cli"
-    print_status "Installing wallet CLI as $installed_wallet..."
-    sudo install -o root -g root -m 0755 "$source_wallet" "$installed_wallet"
+    if [[ "$(readlink -f "$source_wallet")" != "$(readlink -m "$installed_wallet")" ]]; then
+        print_status "Installing wallet CLI as $installed_wallet..."
+        sudo install -o root -g root -m 0755 "$source_wallet" "$installed_wallet"
+    else
+        print_info "Wallet CLI already installed at $installed_wallet"
+    fi
 fi
 
 if [[ -n "$source_wallet_rpc" ]]; then
     installed_wallet_rpc="/usr/bin/${coin_id}-wallet-rpc"
-    print_status "Installing wallet RPC as $installed_wallet_rpc..."
-    sudo install -o root -g root -m 0755 "$source_wallet_rpc" "$installed_wallet_rpc"
+    if [[ "$(readlink -f "$source_wallet_rpc")" != "$(readlink -m "$installed_wallet_rpc")" ]]; then
+        print_status "Installing wallet RPC as $installed_wallet_rpc..."
+        sudo install -o root -g root -m 0755 "$source_wallet_rpc" "$installed_wallet_rpc"
+    else
+        print_info "Wallet RPC already installed at $installed_wallet_rpc"
+    fi
 fi
 
 
@@ -830,6 +1099,7 @@ configure_yiimp_coin() {
     local q_wallet=""
     local q_program=""
     local q_conf_folder=""
+    local q_rpc_host=""
     local dedicated_port_sql="NULL"
     local wallet_rpc_host_sql="NULL"
     local wallet_rpc_port_sql="NULL"
@@ -869,6 +1139,17 @@ configure_yiimp_coin() {
     [[ -n "$master_wallet" ]] ||
         fatal 'A CryptoNote pool reward address is required'
 
+    if [[ "${node_mode:-local}" == remote ]]; then
+        print_status 'Testing get_block_template on external daemon...'
+        if check_remote_block_template "$daemon_rpc_url" "$master_wallet"; then
+            print_success 'External daemon accepts get_block_template for the pool wallet'
+        else
+            print_warning 'External daemon answered get_info but get_block_template failed.'
+            print_warning 'This remote RPC may be restricted and unsuitable for pool mining.'
+            return 1
+        fi
+    fi
+
     block_time_value=''
     input_value \
         'Block Time' \
@@ -895,8 +1176,13 @@ configure_yiimp_coin() {
     q_name="$(sql_escape "$coin_name")"
     q_symbol="$(sql_escape "$coin_symbol")"
     q_wallet="$(sql_escape "$master_wallet")"
-    q_program="$(sql_escape "$(basename "$installed_daemon")")"
+    if [[ -n "$installed_daemon" ]]; then
+        q_program="$(sql_escape "$(basename "$installed_daemon")")"
+    else
+        q_program="$(sql_escape "$daemon_name")"
+    fi
     q_conf_folder="$(sql_escape "$datadir")"
+    q_rpc_host="$(sql_escape "$daemon_rpc_host")"
 
     if [[ -n "${stratum_port:-}" && "$stratum_port" =~ ^[0-9]+$ ]]; then
         dedicated_port_sql="$stratum_port"
@@ -969,7 +1255,7 @@ SET
     block_time=${block_time_value},
     payout_decimals=${payout_decimals_value},
     rpcencoding='XMR',
-    rpchost='127.0.0.1',
+    rpchost='${q_rpc_host}',
     rpcport=${rpc_port},
     rpcuser='',
     rpcpasswd='',
@@ -1031,7 +1317,7 @@ INSERT INTO coins (
     ${block_time_value},
     ${payout_decimals_value},
     'XMR',
-    '127.0.0.1',
+    '${q_rpc_host}',
     ${rpc_port},
     '',
     '',
@@ -1087,8 +1373,10 @@ check_binary_dependencies() {
 
 daemon_dependencies_ok=1
 
-if ! check_binary_dependencies "$installed_daemon" "CryptoNote daemon"; then
-    daemon_dependencies_ok=0
+if [[ "$node_mode" != remote ]]; then
+    if ! check_binary_dependencies "$installed_daemon" "CryptoNote daemon"; then
+        daemon_dependencies_ok=0
+    fi
 fi
 
 if [[ -n "$installed_wallet_rpc" ]]; then
@@ -1100,14 +1388,22 @@ if [[ -n "$installed_wallet" ]]; then
 fi
 
 
-rpc_port="$(find_free_tcp_port 18081 18999 || true)"
-[[ -n "$rpc_port" ]] || fatal 'No free daemon RPC port found'
+if [[ "$node_mode" != remote ]]; then
+    rpc_port="$(find_free_tcp_port 18081 18999 || true)"
+    [[ -n "$rpc_port" ]] || fatal 'No free daemon RPC port found'
 
-input_value     'Daemon RPC Port'     'Local CryptoNote daemon RPC port'     "$rpc_port"     rpc_port
+    input_value \
+        'Daemon RPC Port' \
+        'Local CryptoNote daemon RPC port' \
+        "$rpc_port" \
+        rpc_port
 
-valid_port "$rpc_port" || fatal 'Invalid daemon RPC port'
-port_is_free_tcp "$rpc_port" || fatal 'Daemon RPC port is already in use'
+    valid_port "$rpc_port" || fatal 'Invalid daemon RPC port'
+    port_is_free_tcp "$rpc_port" || fatal 'Daemon RPC port is already in use'
 
+    daemon_rpc_host='127.0.0.1'
+    daemon_rpc_url="http://127.0.0.1:${rpc_port}"
+fi
 
 wallet_rpc_port=''
 
@@ -1120,27 +1416,39 @@ if [[ -n "$installed_wallet_rpc" ]]; then
     valid_port "$wallet_rpc_port" || fatal 'Invalid Wallet RPC port'
     port_is_free_tcp "$wallet_rpc_port" || fatal 'Wallet RPC port is already in use'
 
-    [[ "$wallet_rpc_port" != "$rpc_port" ]] ||         fatal 'Wallet RPC port must be different from daemon RPC port'
+    if [[ "$node_mode" != remote ]]; then
+        [[ "$wallet_rpc_port" != "$rpc_port" ]] ||
+            fatal 'Wallet RPC port must be different from daemon RPC port'
+    fi
 fi
 
+p2p_port=''
 
-p2p_port="$(find_free_tcp_port 18080 18999 || true)"
-[[ -n "$p2p_port" ]] || fatal 'No free P2P port found'
+if [[ "$node_mode" != remote ]]; then
+    p2p_port="$(find_free_tcp_port 18080 18999 || true)"
+    [[ -n "$p2p_port" ]] || fatal 'No free P2P port found'
 
-input_value     'P2P Port'     'CryptoNote peer-to-peer port'     "$p2p_port"     p2p_port
+    input_value \
+        'P2P Port' \
+        'CryptoNote peer-to-peer port' \
+        "$p2p_port" \
+        p2p_port
 
-valid_port "$p2p_port" || fatal 'Invalid P2P port'
-port_is_free_tcp "$p2p_port" || fatal 'P2P port is already in use'
+    valid_port "$p2p_port" || fatal 'Invalid P2P port'
+    port_is_free_tcp "$p2p_port" || fatal 'P2P port is already in use'
 
-[[ "$p2p_port" != "$rpc_port" ]] ||     fatal 'P2P port must be different from daemon RPC port'
+    [[ "$p2p_port" != "$rpc_port" ]] ||
+        fatal 'P2P port must be different from daemon RPC port'
 
-[[ -z "$wallet_rpc_port" || "$p2p_port" != "$wallet_rpc_port" ]] ||     fatal 'P2P port must be different from Wallet RPC port'
+    [[ -z "$wallet_rpc_port" || "$p2p_port" != "$wallet_rpc_port" ]] ||
+        fatal 'P2P port must be different from Wallet RPC port'
+fi
 
 # Extra daemon arguments are optional.
 # Most CryptoNote/RandomX nodes do not need anything here.
 declare -a extra_args=()
 
-if confirm_yesno     'Advanced Daemon Arguments'     'Most coins do not need additional daemon arguments.
+if [[ "$node_mode" != remote ]] && confirm_yesno     'Advanced Daemon Arguments'     'Most coins do not need additional daemon arguments.
 
 Only configure this if the coin documentation requires extra options.
 
@@ -1244,6 +1552,7 @@ if [[ -n "$installed_wallet" ]]; then
         if ! sudo -u "$STORAGE_USER" "$installed_wallet" \
             --generate-new-wallet "$wallet_file" \
             --password-file "$wallet_password_file" \
+            --daemon-address "${daemon_rpc_host}:${rpc_port}" \
             --mnemonic-language English \
             --command exit
         then
@@ -1256,13 +1565,19 @@ if [[ -n "$installed_wallet" ]]; then
     fi
 fi
 
-runner="/usr/local/lib/sqsyiimp/${coin_id}-randomx-node"
-service_name="sqsyiimp-${coin_id}-node.service"
-service_file="/etc/systemd/system/$service_name"
-declare -a runtime_args=(--data-dir "$datadir" --rpc-bind-ip 127.0.0.1 --rpc-bind-port "$rpc_port" --p2p-bind-port "$p2p_port" --non-interactive)
-runtime_args+=("${extra_args[@]}")
-write_runner "$runner" "$installed_daemon" "${runtime_args[@]}"
-write_systemd_service "$service_file" "$runner" "SQSYIIMP ${coin_name} RandomX/CryptoNote node"
+runner=''
+service_name=''
+service_file=''
+
+if [[ "$node_mode" != remote ]]; then
+    runner="/usr/local/lib/sqsyiimp/${coin_id}-randomx-node"
+    service_name="sqsyiimp-${coin_id}-node.service"
+    service_file="/etc/systemd/system/$service_name"
+    declare -a runtime_args=(--data-dir "$datadir" --rpc-bind-ip 127.0.0.1 --rpc-bind-port "$rpc_port" --p2p-bind-port "$p2p_port" --non-interactive)
+    runtime_args+=("${extra_args[@]}")
+    write_runner "$runner" "$installed_daemon" "${runtime_args[@]}"
+    write_systemd_service "$service_file" "$runner" "SQSYIIMP ${coin_name} RandomX/CryptoNote node"
+fi
 
 wallet_rpc_dependencies_ok=1
 
@@ -1275,21 +1590,25 @@ if [[ -n "$installed_wallet_rpc" ]]; then
     fi
 fi
 
-if [[ "$daemon_dependencies_ok" -eq 1 ]]; then
-    if confirm_yesno 'Start RandomX Node' "Start ${coin_name} now and enable it at boot?"; then
-        sudo systemctl enable --now "$service_name"
-        sleep 2
+if [[ "$node_mode" != remote ]]; then
+    if [[ "$daemon_dependencies_ok" -eq 1 ]]; then
+        if confirm_yesno 'Start RandomX Node' "Start ${coin_name} now and enable it at boot?"; then
+            sudo systemctl enable --now "$service_name"
+            sleep 2
 
-        if sudo systemctl is-active --quiet "$service_name"; then
-            print_success 'CryptoNote node service is running'
-        else
-            print_warning "Service did not remain active; inspect:"
-            print_warning "sudo journalctl -u $service_name -n 100 --no-pager"
+            if sudo systemctl is-active --quiet "$service_name"; then
+                print_success 'CryptoNote node service is running'
+            else
+                print_warning "Service did not remain active; inspect:"
+                print_warning "sudo journalctl -u $service_name -n 100 --no-pager"
+            fi
         fi
+    else
+        print_warning 'Node service was created but will NOT be started.'
+        print_warning 'Resolve the missing daemon libraries first, then start the service manually.'
     fi
 else
-    print_warning 'Node service was created but will NOT be started.'
-    print_warning 'Resolve the missing daemon libraries first, then start the service manually.'
+    print_success "Using external CryptoNote daemon: $daemon_rpc_url"
 fi
 
 if [[ -n "$installed_wallet_rpc" ]] &&
@@ -1304,7 +1623,7 @@ then
     declare -a wallet_rpc_args=(
         --wallet-file "$wallet_file"
         --password-file "$wallet_password_file"
-        --daemon-address "127.0.0.1:$rpc_port"
+        --daemon-address "${daemon_rpc_host}:$rpc_port"
         --rpc-bind-ip 127.0.0.1
         --rpc-bind-port "$wallet_rpc_port"
         --disable-rpc-login
@@ -1321,8 +1640,15 @@ then
         "SQSYIIMP ${coin_name} Wallet RPC" \
         "$service_name"
 
+    wallet_rpc_parent_ready=0
+    if [[ "$node_mode" == remote ]]; then
+        [[ "$remote_daemon_ok" -eq 1 ]] && wallet_rpc_parent_ready=1
+    elif sudo systemctl is-active --quiet "$service_name"; then
+        wallet_rpc_parent_ready=1
+    fi
+
     if [[ "$wallet_rpc_dependencies_ok" -eq 1 ]] &&
-       sudo systemctl is-active --quiet "$service_name"
+       [[ "$wallet_rpc_parent_ready" -eq 1 ]]
     then
         if confirm_yesno \
             'Start Wallet RPC' \
@@ -1438,9 +1764,14 @@ fi
 print_divider
 print_header 'RandomX / CryptoNote Installation Complete'
 print_success "$coin_name node/wallet installation is complete"
-print_info "Node status : sudo systemctl status $service_name --no-pager"
-print_info "Node log    : sudo journalctl -u $service_name -f"
-print_info "Daemon RPC  : http://127.0.0.1:$rpc_port"
+if [[ "$node_mode" == remote ]]; then
+    print_info "Node mode   : external daemon + local wallet"
+    print_info "Daemon RPC  : $daemon_rpc_url"
+else
+    print_info "Node status : sudo systemctl status $service_name --no-pager"
+    print_info "Node log    : sudo journalctl -u $service_name -f"
+    print_info "Daemon RPC  : $daemon_rpc_url"
+fi
 [[ -z "$wallet_rpc_port" ]] || print_info "Wallet RPC  : http://127.0.0.1:$wallet_rpc_port"
 [[ -z "$installed_wallet_rpc" ]] || print_info "Wallet RPC binary : $installed_wallet_rpc"
 [[ -z "$wallet_file" ]] || print_info "Wallet file : $wallet_file"
@@ -1452,7 +1783,7 @@ if [[ "${stratum_configured:-0}" -eq 1 ]]; then
     print_info "Stratum binary : ${stratum_binary:-unknown}"
     print_info "Stratum status : sudo /usr/bin/stratum.${coin_symbol,,} status"
     print_info "Stratum start  : sudo /usr/bin/stratum.${coin_symbol,,} start"
-    print_warning 'Leave Stratum stopped until the CryptoNote daemon is fully synchronized.'
+    print_warning 'Leave Stratum stopped until the CryptoNote daemon is fully synchronized and get_block_template works.'
 fi
 
 print_info 'Stratum source code remains independent and is not modified by this installer.'

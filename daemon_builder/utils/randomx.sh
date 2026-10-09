@@ -1549,12 +1549,17 @@ if [[ -n "$installed_wallet" ]]; then
 
         print_status "Creating encrypted wallet: $wallet_file"
 
+        # MHP_RANDOMX_SAFE_WALLET_CREATE_V1
+        # monero-wallet-cli prints the mnemonic seed during wallet creation.
+        # Do not expose that output in an automated installer terminal.
+        # A single CLI command is passed as the final positional argument.
         if ! sudo -u "$STORAGE_USER" "$installed_wallet" \
             --generate-new-wallet "$wallet_file" \
             --password-file "$wallet_password_file" \
             --daemon-address "${daemon_rpc_host}:${rpc_port}" \
             --mnemonic-language English \
-            --command exit
+            help \
+            >/dev/null 2>&1
         then
             fatal 'Wallet creation failed. Check this coin wallet-cli arguments.'
         fi

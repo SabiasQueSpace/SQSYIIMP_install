@@ -3268,6 +3268,27 @@ EOF_HELP
         return 1 2>/dev/null || exit 1
     fi
 
+    #
+    # SQSYIIMP_STRATUM_FIREWALL_ALWAYS_OPEN_V1
+    #
+    # A dedicated Stratum port is part of the installed configuration.
+    # Keep the firewall rule independent from whether the Stratum is
+    # started now or its startup is intentionally deferred.
+    #
+    if [ -z "${DISABLE_FIREWALL:-}" ]; then
+        if command -v ufw >/dev/null 2>&1; then
+            if sudo ufw allow "${coinport}/tcp" >/dev/null 2>&1; then
+                print_success "Public firewall port ${coinport}/tcp is open"
+            else
+                print_warning "Unable to add UFW rule for port ${coinport}/tcp"
+            fi
+        else
+            print_warning "UFW is not installed; verify public access to port ${coinport}/tcp manually"
+        fi
+    else
+        print_info "Firewall management is disabled; verify port ${coinport}/tcp manually"
+    fi
+
     if [[ "${SQSYIIMP_STRATUM_DEFER_START:-false}" == "true" ]]; then
 
         #
@@ -3279,19 +3300,9 @@ EOF_HELP
             return 1 2>/dev/null || exit 1
         fi
 
-        #
-        # Do not expose a Stratum that is intentionally inactive.
-        # Remove a previous SQSYIIMP UFW rule for this dedicated
-        # port when UFW is available.
-        #
-        if command -v ufw >/dev/null 2>&1; then
-            sudo ufw --force delete allow "$coinport" \
-                >/dev/null 2>&1 || true
-        fi
-
         print_info "Stratum automatic start has been deferred."
         print_info "Stratum autostart is disabled."
-        print_info "Public firewall access remains closed."
+        print_info "Public firewall port ${coinport}/tcp remains configured."
         print_info "Configuration, launcher and metadata were created."
         print_info "Start later with: $SERVICE_COMMAND start"
 
@@ -3301,15 +3312,6 @@ EOF_HELP
 
         if "$SERVICE_COMMAND" start; then
             print_success "Stratum service started"
-
-            #
-            # Only expose the port after the managed Stratum has
-            # successfully passed its startup/health checks.
-            #
-            if command -v ufw >/dev/null 2>&1; then
-                sudo ufw allow "$coinport" >/dev/null 2>&1 || \
-                    print_warning "Unable to add UFW rule for port $coinport"
-            fi
 
             if register_autostart; then
                 print_success "Stratum autostart registered"

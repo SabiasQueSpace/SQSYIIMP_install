@@ -1255,6 +1255,7 @@ ensure_layout() {
     [ -d "$CONFIG_DIR" ] || fatal "Stratum config directory not found: $CONFIG_DIR"
     sudo mkdir -p "$SERVICE_DIR" "$MANAGED_DIR"
     migrate_legacy_algorithm_templates
+    ensure_additional_algorithm_templates
 }
 
 find_open_port() {
@@ -1445,6 +1446,81 @@ PY_QUANTUS_TEMPLATE
 
     print_success \
         "Quantus QPoW algorithm template available"
+}
+
+
+# SQSYIIMP_AUTO_ALGO_TEMPLATES_V1
+ensure_additional_algorithm_templates() {
+    local runtime_user="${STORAGE_USER:-crypto-data}"
+    local runtime_group="${STORAGE_GROUP:-${STORAGE_USER:-crypto-data}}"
+    local source=""
+    local target=""
+    local tmp=""
+
+    #
+    # CryptoNight-GPU uses the same CryptoNote Stratum protocol
+    # layout as RandomX.  Bootstrap its template from randomx.conf
+    # while keeping it as an independent algorithm template.
+    #
+    source="$TEMPLATE_DIR/randomx.conf"
+    target="$TEMPLATE_DIR/cryptonight-gpu.conf"
+
+    if [[ ! -f "$target" ]]; then
+        if [[ ! -f "$source" ]]; then
+            print_warning \
+                "Cannot create CryptoNight-GPU template: randomx.conf is missing"
+        else
+            print_info \
+                "Creating CryptoNight-GPU Stratum template"
+
+            tmp="$(mktemp)"
+
+            #
+            # Copy TCP, SQL and STRATUM settings from the local
+            # RandomX template, but remove coin-specific wallet
+            # exclusions from the generic template.
+            #
+            awk '
+                /^\[WALLETS\][[:space:]]*$/ { exit }
+                { print }
+            ' "$source" > "$tmp"
+
+            sed -i -E \
+                's/^[[:space:]]*algo[[:space:]]*=.*/algo = cryptonight-gpu/' \
+                "$tmp"
+
+            if ! grep -qEi \
+                '^[[:space:]]*algo[[:space:]]*=[[:space:]]*cryptonight-gpu[[:space:]]*$' \
+                "$tmp"
+            then
+                rm -f "$tmp"
+                fatal "CryptoNight-GPU template validation failed"
+            fi
+
+            sudo install \
+                -o "$runtime_user" \
+                -g "$runtime_group" \
+                -m 0644 \
+                "$tmp" \
+                "$target"
+
+            rm -f "$tmp"
+
+            print_success \
+                "CryptoNight-GPU algorithm template available"
+        fi
+    fi
+
+    #
+    # Poseidon2-Goldilocks is supported by the Stratum binary,
+    # but its difficulty profile must not be guessed from another
+    # unrelated algorithm.  Report it until a dedicated profile
+    # is defined.
+    #
+    if [[ ! -f "$TEMPLATE_DIR/Poseidon2-Goldilocks.conf" ]]; then
+        print_info \
+            "Poseidon2-Goldilocks is supported by Stratum but has no dedicated template profile yet"
+    fi
 }
 
 

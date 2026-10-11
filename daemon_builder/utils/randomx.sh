@@ -1116,6 +1116,70 @@ if address:
     printf '%s\n' "$address"
 }
 
+# MHP_CRYPTONOTE_ENSURE_ALGO_V1
+ensure_yiimp_algo() {
+    local mysql_client="$1"
+    local mysql_cnf="$2"
+    local yiimp_db="$3"
+    local algo_name="$4"
+    local algo_count=""
+
+    algo_count="$(
+        sudo "$mysql_client" \
+            --defaults-extra-file="$mysql_cnf" \
+            --defaults-group-suffix=mysql \
+            "$yiimp_db" \
+            -Nse "
+SELECT COUNT(*)
+FROM algos
+WHERE name='${algo_name}';
+" 2>/dev/null || true
+    )"
+
+    [[ "$algo_count" =~ ^[0-9]+$ ]] || {
+        print_warning "Could not verify YiiMP algorithm record: ${algo_name}"
+        return 1
+    }
+
+    if (( algo_count > 1 )); then
+        print_warning \
+            "Multiple YiiMP algorithm records use name ${algo_name}; refusing automatic modification."
+        return 1
+    fi
+
+    if (( algo_count == 1 )); then
+        print_success "YiiMP algorithm already registered: ${algo_name}"
+        return 0
+    fi
+
+    print_status "Registering YiiMP algorithm: ${algo_name}"
+
+    sudo "$mysql_client" \
+        --defaults-extra-file="$mysql_cnf" \
+        --defaults-group-suffix=mysql \
+        "$yiimp_db" <<EOF_ALGO
+INSERT INTO algos (
+    name,
+    factor,
+    overflow,
+    norm,
+    speedfactor,
+    port,
+    visible
+) VALUES (
+    '${algo_name}',
+    1,
+    NULL,
+    1,
+    1,
+    3033,
+    0
+);
+EOF_ALGO
+
+    print_success "YiiMP algorithm registered: ${algo_name}"
+}
+
 configure_yiimp_coin() {
     local mysql_cnf="$STORAGE_ROOT/yiimp/.my.cnf"
     local mysql_client=""
@@ -1150,6 +1214,12 @@ configure_yiimp_coin() {
         print_warning 'Could not detect YiiMP database containing the coins table'
         return 1
     }
+
+    if ! ensure_yiimp_algo         "$mysql_client"         "$mysql_cnf"         "$yiimp_db"         "$yiimp_algo"
+    then
+        print_warning             "YiiMP algorithm registration failed for ${yiimp_algo}"
+        return 1
+    fi
 
     if [[ -n "${wallet_rpc_port:-}" ]]; then
         master_wallet="$(get_wallet_rpc_address "$wallet_rpc_port" || true)"

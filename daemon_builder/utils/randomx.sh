@@ -367,9 +367,9 @@ need_cmd python3; need_cmd ss; need_cmd curl; need_cmd systemctl
 id "$STORAGE_USER" >/dev/null 2>&1 || fatal "Storage user does not exist: $STORAGE_USER"
 
 clear 2>/dev/null || true
-print_header 'RandomX / CryptoNote Coin Installation'
-print_info 'This mode is for Monero/CryptoNote-style RandomX nodes.'
-print_info 'This installer manages the RandomX/CryptoNote node, wallet and Wallet RPC runtime.'
+print_header 'CryptoNote Coin Installation'
+print_info 'This mode is for CryptoNote-style coins using supported PoW backends.'
+print_info 'This installer manages the CryptoNote node, wallet, Wallet RPC and Stratum configuration.'
 print_info 'Stratum source remains independent and is never patched by this installer.'
 
 coin_name=''; input_value 'Coin Name' 'Full coin name (example: Monero)' '' coin_name
@@ -379,6 +379,35 @@ coin_symbol="${coin_symbol^^}"; valid_symbol "$coin_symbol" || fatal "Invalid co
 coin_id="$(printf '%s' "$coin_name" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]//g')"
 input_value 'Coin Identifier' 'Filesystem/service identifier' "$coin_id" coin_id
 coin_id="${coin_id,,}"; valid_id "$coin_id" || fatal "Invalid coin identifier: $coin_id"
+
+# MHP_CRYPTONOTE_POW_PROFILE_V1
+pow_backend=''
+choose_menu \
+    'CryptoNote PoW' \
+    'Choose the proof-of-work backend used by this coin.' \
+    pow_backend \
+    randomx 'RandomX' \
+    cryptonight-gpu 'CryptoNight-GPU (cn/gpu)'
+
+case "$pow_backend" in
+    randomx)
+        yiimp_algo='randomx'
+        yiimp_rpcencoding='XMR'
+        pow_label='RandomX'
+        ;;
+    cryptonight-gpu)
+        yiimp_algo='cryptonight-gpu'
+        yiimp_rpcencoding='CRYPTONOTE'
+        pow_label='CryptoNight-GPU'
+        ;;
+    *)
+        fatal "Unsupported CryptoNote PoW backend: $pow_backend"
+        ;;
+esac
+
+print_info "Selected PoW backend: $pow_label"
+print_info "YiiMP algorithm      : $yiimp_algo"
+print_info "YiiMP RPC encoding   : $yiimp_rpcencoding"
 
 install_mode=''; choose_menu 'Node Binaries' 'Choose how to provide the CryptoNote binaries.' install_mode \
     local 'Use existing local daemon/wallet executables' \
@@ -1250,11 +1279,11 @@ SET
     name='${q_name}',
     symbol='${q_symbol}',
     symbol2='${q_symbol}',
-    algo='randomx',
+    algo='${yiimp_algo}',
     master_wallet='${q_wallet}',
     block_time=${block_time_value},
     payout_decimals=${payout_decimals_value},
-    rpcencoding='XMR',
+    rpcencoding='${yiimp_rpcencoding}',
     rpchost='${q_rpc_host}',
     rpcport=${rpc_port},
     rpcuser='',
@@ -1312,11 +1341,11 @@ INSERT INTO coins (
     '${q_name}',
     '${q_symbol}',
     '${q_symbol}',
-    'randomx',
+    '${yiimp_algo}',
     '${q_wallet}',
     ${block_time_value},
     ${payout_decimals_value},
-    'XMR',
+    '${yiimp_rpcencoding}',
     '${q_rpc_host}',
     ${rpc_port},
     '',
@@ -1683,7 +1712,7 @@ metadata_file="$MANAGED_DIR/${coin_symbol,,}.conf"
 save_node_metadata "$metadata_file"
 
 # ---------------------------------------------------------
-# Dedicated RandomX Stratum configuration
+# Dedicated CryptoNote Stratum configuration
 # ---------------------------------------------------------
 
 stratum_configured=0
@@ -1694,17 +1723,17 @@ stratum_config=''
 if command -v addport >/dev/null 2>&1; then
 
     if confirm_yesno \
-        'RandomX Stratum' \
-        "Configure a dedicated RandomX Stratum for ${coin_symbol} now?"
+        "${pow_label} Stratum" \
+        "Configure a dedicated ${pow_label} Stratum for ${coin_symbol} now?"
     then
 
         print_status \
-            'Creating RandomX Stratum configuration. Automatic start will be deferred.'
+            "Creating ${pow_label} Stratum configuration. Automatic start will be deferred."
 
         rm -f "$STORAGE_ROOT/daemon_builder/.addport.cnf"
 
         if SQSYIIMP_STRATUM_DEFER_START=true \
-            addport CREATECOIN "$coin_symbol" randomx
+            addport CREATECOIN "$coin_symbol" "$yiimp_algo"
         then
             ADDPORTCONF="$STORAGE_ROOT/daemon_builder/.addport.cnf"
 
@@ -1719,7 +1748,7 @@ if command -v addport >/dev/null 2>&1; then
                 stratum_configured=1
 
                 print_success \
-                    "RandomX Stratum configuration created for ${coin_symbol}"
+                    "${pow_label} Stratum configuration created for ${coin_symbol}"
 
                 [[ -z "$stratum_port" ]] ||
                     print_info "Stratum port   : $stratum_port"
@@ -1741,13 +1770,13 @@ if command -v addport >/dev/null 2>&1; then
             fi
         else
             print_warning \
-                'RandomX Stratum configuration was not completed.'
+                "${pow_label} Stratum configuration was not completed."
         fi
     fi
 
 else
     print_warning \
-        'addport command is unavailable; RandomX Stratum configuration was skipped.'
+        "addport command is unavailable; ${pow_label} Stratum configuration was skipped."
 fi
 
 # DaemonBuilder metadata may have been rewritten by addport.
@@ -1767,7 +1796,7 @@ then
 fi
 
 print_divider
-print_header 'RandomX / CryptoNote Installation Complete'
+print_header 'CryptoNote Installation Complete'
 print_success "$coin_name node/wallet installation is complete"
 if [[ "$node_mode" == remote ]]; then
     print_info "Node mode   : external daemon + local wallet"

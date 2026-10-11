@@ -134,7 +134,7 @@ RESULT=$(
         1 "Build UTXO Coin Daemon From Source Code" \
         2 "Update UTXO Coin Daemon From Source Code" \
         3 "Install Ethash / Etchash EVM Coin Node" \
-        4 "Install RandomX / CryptoNote Coin Node" \
+        4 "Install CryptoNote Coin Node (RandomX / CN-GPU)" \
         ' ' "───────────────────────────────────────" \
         5 "$UPDATE_MENU_LABEL" \
         6 "Exit DaemonBuilder"

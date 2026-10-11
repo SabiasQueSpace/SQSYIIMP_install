@@ -919,6 +919,7 @@ case "$install_mode" in
                 ;;
 
             download)
+                # MHP_CRYPTONOTE_WALLET_PACKAGE_RETRY_V1
                 remote_wallet_url=''
 
                 input_value \
@@ -929,18 +930,6 @@ case "$install_mode" in
 
                 [[ "$remote_wallet_url" =~ ^https?:// ]] ||
                     fatal 'A valid http/https wallet package URL is required'
-
-                input_value \
-                    'Wallet CLI Name' \
-                    'Wallet CLI executable name inside archive' \
-                    "$wallet_name" \
-                    wallet_name
-
-                input_value \
-                    'Wallet RPC Name' \
-                    'Wallet RPC executable name inside archive' \
-                    "$wallet_rpc_name" \
-                    wallet_rpc_name
 
                 remote_wallet_file="$tmpdir/$(basename "${remote_wallet_url%%\?*}")"
                 [[ -n "${remote_wallet_file##*/}" ]] ||
@@ -956,29 +945,87 @@ case "$install_mode" in
                     -o "$remote_wallet_file"
 
                 remote_wallet_extract="$tmpdir/wallet-extracted"
-                extract_download "$remote_wallet_file" "$remote_wallet_extract"
 
-                source_wallet="$(
-                    find "$remote_wallet_extract" \
-                        -type f \
-                        -name "$wallet_name" \
-                        -print -quit 2>/dev/null || true
-                )"
+                print_status 'Extracting local wallet package...'
+                extract_download \
+                    "$remote_wallet_file" \
+                    "$remote_wallet_extract"
 
-                source_wallet_rpc="$(
-                    find "$remote_wallet_extract" \
-                        -type f \
-                        -name "$wallet_rpc_name" \
-                        -print -quit 2>/dev/null || true
-                )"
+                print_success 'Local wallet package downloaded and extracted'
 
-                [[ -n "$source_wallet" && -f "$source_wallet" ]] ||
-                    fatal "Wallet CLI '$wallet_name' was not found in package"
+                #
+                # Wallet CLI
+                #
+                while true; do
+                    source_wallet=''
 
-                [[ -n "$source_wallet_rpc" && -f "$source_wallet_rpc" ]] ||
-                    fatal "Wallet RPC '$wallet_rpc_name' was not found in package"
+                    input_value \
+                        'Wallet CLI Name' \
+                        'Wallet CLI executable name inside archive' \
+                        "$wallet_name" \
+                        wallet_name
 
-                chmod +x "$source_wallet" "$source_wallet_rpc"
+                    if [[ -z "${wallet_name// }" ]]; then
+                        print_warning 'Wallet CLI name cannot be empty'
+                        continue
+                    fi
+
+                    source_wallet="$(
+                        find "$remote_wallet_extract" \
+                            -type f \
+                            -name "$wallet_name" \
+                            -print -quit 2>/dev/null || true
+                    )"
+
+                    if [[ -n "$source_wallet" && -f "$source_wallet" ]]; then
+                        chmod +x "$source_wallet"
+                        print_success "Wallet CLI found: $source_wallet"
+                        break
+                    fi
+
+                    print_warning \
+                        "Wallet CLI '$wallet_name' was not found in package"
+
+                    print_info \
+                        'The package remains extracted; enter another executable name.'
+                done
+
+                #
+                # Wallet RPC
+                #
+                while true; do
+                    source_wallet_rpc=''
+
+                    input_value \
+                        'Wallet RPC Name' \
+                        'Wallet RPC executable name inside archive' \
+                        "$wallet_rpc_name" \
+                        wallet_rpc_name
+
+                    if [[ -z "${wallet_rpc_name// }" ]]; then
+                        print_warning 'Wallet RPC name cannot be empty'
+                        continue
+                    fi
+
+                    source_wallet_rpc="$(
+                        find "$remote_wallet_extract" \
+                            -type f \
+                            -name "$wallet_rpc_name" \
+                            -print -quit 2>/dev/null || true
+                    )"
+
+                    if [[ -n "$source_wallet_rpc" && -f "$source_wallet_rpc" ]]; then
+                        chmod +x "$source_wallet_rpc"
+                        print_success "Wallet RPC found: $source_wallet_rpc"
+                        break
+                    fi
+
+                    print_warning \
+                        "Wallet RPC '$wallet_rpc_name' was not found in package"
+
+                    print_info \
+                        'The package remains extracted; enter another executable name.'
+                done
                 ;;
 
             *)

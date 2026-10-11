@@ -1554,18 +1554,80 @@ fi
 wallet_rpc_port=''
 
 if [[ -n "$installed_wallet_rpc" ]]; then
+    # MHP_CRYPTONOTE_WALLET_RPC_PORT_RETRY_V1
+
     wallet_rpc_port="$(find_free_tcp_port 18083 18999 || true)"
-    [[ -n "$wallet_rpc_port" ]] || fatal 'No free Wallet RPC port found'
+    [[ -n "$wallet_rpc_port" ]] ||
+        fatal 'No free Wallet RPC port found between 18083 and 18999'
 
-    input_value         'Wallet RPC Port'         'Local CryptoNote wallet RPC port used by YiiMP'         "$wallet_rpc_port"         wallet_rpc_port
+    wallet_rpc_port_default="$wallet_rpc_port"
 
-    valid_port "$wallet_rpc_port" || fatal 'Invalid Wallet RPC port'
-    port_is_free_tcp "$wallet_rpc_port" || fatal 'Wallet RPC port is already in use'
+    while true; do
+        input_value \
+            'Wallet RPC Port' \
+            'Local CryptoNote wallet RPC port used by YiiMP' \
+            "$wallet_rpc_port_default" \
+            wallet_rpc_port
 
-    if [[ "$node_mode" != remote ]]; then
-        [[ "$wallet_rpc_port" != "$rpc_port" ]] ||
-            fatal 'Wallet RPC port must be different from daemon RPC port'
-    fi
+        if ! valid_port "$wallet_rpc_port"; then
+            print_warning \
+                "Invalid Wallet RPC port: $wallet_rpc_port"
+
+            print_info \
+                'Enter a TCP port between 1 and 65535.'
+
+            wallet_rpc_port_default="$(
+                find_free_tcp_port 18083 18999 || true
+            )"
+
+            [[ -n "$wallet_rpc_port_default" ]] ||
+                fatal 'No free Wallet RPC port found between 18083 and 18999'
+
+            continue
+        fi
+
+        if [[ "$node_mode" != remote ]] &&
+           [[ "$wallet_rpc_port" == "$rpc_port" ]]
+        then
+            print_warning \
+                "Wallet RPC port $wallet_rpc_port is already reserved for the local daemon RPC."
+
+            wallet_rpc_port_default="$(
+                find_free_tcp_port "$((wallet_rpc_port + 1))" 18999 ||
+                find_free_tcp_port 18083 "$((wallet_rpc_port - 1))" ||
+                true
+            )"
+
+            [[ -n "$wallet_rpc_port_default" ]] ||
+                fatal 'No alternative free Wallet RPC port found'
+
+            print_info \
+                "Suggested free Wallet RPC port: $wallet_rpc_port_default"
+
+            continue
+        fi
+
+        if port_is_free_tcp "$wallet_rpc_port"; then
+            print_success \
+                "Wallet RPC port $wallet_rpc_port is available"
+            break
+        fi
+
+        print_warning \
+            "Wallet RPC port $wallet_rpc_port is already in use"
+
+        wallet_rpc_port_default="$(
+            find_free_tcp_port "$((wallet_rpc_port + 1))" 18999 ||
+            find_free_tcp_port 18083 "$((wallet_rpc_port - 1))" ||
+            true
+        )"
+
+        [[ -n "$wallet_rpc_port_default" ]] ||
+            fatal 'No alternative free Wallet RPC port found'
+
+        print_info \
+            "Suggested free Wallet RPC port: $wallet_rpc_port_default"
+    done
 fi
 
 p2p_port=''
